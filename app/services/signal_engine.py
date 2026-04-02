@@ -69,7 +69,7 @@ async def scan_portfolio_gen(stock_codes: list[str]):
     异步生成器，逐只正股产出扫描状态
     """
     import asyncio
-    from app.services.data_fetcher import get_stock_price, get_cb_info_by_stock
+    from app.services.data_fetcher import get_stock_price, get_cb_info_by_stock_with_price
 
     for i, code in enumerate(stock_codes):
         step = {
@@ -97,11 +97,11 @@ async def scan_portfolio_gen(stock_codes: list[str]):
         })
         yield step
 
-        cb_info = await asyncio.to_thread(get_cb_info_by_stock, code)
+        cb_info = await asyncio.to_thread(get_cb_info_by_stock_with_price, code)
         if cb_info is None:
             step.update({
                 'status': 'skip',
-                'message': f'{code}：无对应转债，跳过',
+                'message': f'{code}：无对应转债或无法获取转债价格，跳过',
             })
             yield step
             continue

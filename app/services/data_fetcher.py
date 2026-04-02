@@ -1,80 +1,134 @@
 """
-akshare 数据获取封装
+数据获取层 - 新浪实时 + THS转债信息
 """
+import requests
 import akshare as ak
 from datetime import datetime
 from typing import Optional
 
-# 缓存：code -> (timestamp, data)
-_price_cache: dict = {}
+# 股票代码 → 新浪前缀
+def _stock_prefix(code: str) -> str:
+    """判断交易所前缀"""
+    if code.startswith(('6', '5', '9')):
+        return f"sh{code}"
+    return f"sz{code}"
 
 
-def _get_cached(code: str, key: str, ttl: int = 60):
-    """简单内存缓存"""
-    cache_key = f"{code}:{key}"
-    if cache_key in _price_cache:
-        ts, val = _price_cache[cache_key]
-        if datetime.now().timestamp() - ts < ttl:
-            return val
-    return None
-
-
-def _set_cached(code: str, key: str, value):
-    cache_key = f"{code}:{key}"
-    _price_cache[cache_key] = (datetime.now().timestamp(), value)
-
+# ---- 股票价格 ----
 
 def get_stock_price(stock_code: str) -> Optional[float]:
     """
-    获取正股实时价格
-    stock_code: 如 '000001' 或 '600519'
+    获取正股实时价格（新浪）
     """
-    cached = _get_cached(stock_code, "price")
-    if cached is not None:
-        return cached
-
+    prefix = _stock_prefix(stock_code)
     try:
-        # 东方财富实时行情
-        df = ak.stock_zh_a_spot_em()
-        row = df[df['代码'] == stock_code]
-        if row.empty:
+        r = requests.get(
+            f"https://hq.sinajs.cn/list={prefix}",
+            headers={"Referer": "http://finance.sina.com.cn", "User-Agent": "Mozilla/5.0"},
+            timeout=5,
+        )
+        r.encoding = "gbk"
+        text = r.text.strip()
+        if "=" not in text:
             return None
-        price = float(row['最新价'].values[0])
-        _set_cached(stock_code, "price", price)
-        return price
+        # 格式: var hq_str_sz300014="名称,开盘,当前,最高,最低,...,昨收,...,时间"
+        inner = text.split('"')[1]
+        parts = inner.split(",")
+        if len(parts) < 10:
+            return None
+        # parts[3]=当前价, parts[4]=今开
+        price = float(parts[3])
+        if price <= 0:
+            # 尝试昨收
+            price = float(parts[2])
+        return price if price > 0 else None
     except Exception:
         return None
+
+
+# ---- 转债基础信息缓存 ----
+
+_cb_info_cache: dict = {}  # stock_code -> {cb_code, cb_name, conversion_price}
+
+
+def _load_cb_info() -> dict:
+    """从THS加载全部转债基础信息，建立正股→转债映射"""
+    try:
+        df = ak.bond_zh_cov_info_ths()
+        mapping = {}
+        for _, row in df.iterrows():
+            stock_code = str(row["正股代码"]).strip()
+            if stock_code and stock_code != "nan":
+                mapping[stock_code] = {
+                    "cb_code": str(row["债券代码"]).strip(),
+                    "cb_name": str(row["债券简称"]).strip(),
+                    "conversion_price": float(row["转股价格"]),
+                }
+        return mapping
+    except Exception:
+        return {}
 
 
 def get_cb_info_by_stock(stock_code: str) -> Optional[dict]:
     """
-    根据正股代码获取对应转债信息
-    返回: {cb_code, cb_name, cb_price, conversion_price} 或 None
+    根据正股代码获取对应转债信息（转债代码、名称、转股价）
     """
+    if not _cb_info_cache:
+        _cb_info_cache.update(_load_cb_info())
+    return _cb_info_cache.get(stock_code)
+
+
+# ---- 转债价格 ----
+
+def _get_cb_price(cb_code: str) -> Optional[float]:
+    """通过新浪获取转债实时价格"""
+    # 转债代码以 1 开头是深圳，2开头是上海
+    prefix = "sz" if cb_code.startswith("1") else "sh"
     try:
-        # 获取所有可转债实时行情
-        df = ak.bond_zh_hs_cov()
-        # 找到正股代码匹配的行
-        row = df[df['正股代码'] == stock_code]
-        if row.empty:
+        r = requests.get(
+            f"https://hq.sinajs.cn/list={prefix}{cb_code}",
+            headers={"Referer": "http://finance.sina.com.cn", "User-Agent": "Mozilla/5.0"},
+            timeout=5,
+        )
+        r.encoding = "gbk"
+        text = r.text.strip()
+        if "=" not in text:
             return None
-        return {
-            'cb_code': str(row['债券代码'].values[0]),
-            'cb_name': str(row['债券简称'].values[0]),
-            'cb_price': float(row['转债最新价'].values[0]),
-            'conversion_price': float(row['转股价'].values[0]),
-        }
+        inner = text.split('"')[1]
+        parts = inner.split(",")
+        if len(parts) < 10:
+            return None
+        # parts[3]=当前价
+        price = float(parts[3])
+        return price if price > 0 else None
     except Exception:
         return None
 
 
+def get_cb_info_by_stock_with_price(stock_code: str) -> Optional[dict]:
+    """
+    获取转债完整信息：代码、名称、转股价、当前价格
+    """
+    info = get_cb_info_by_stock(stock_code)
+    if not info:
+        return None
+    cb_price = _get_cb_price(info["cb_code"])
+    if cb_price is None:
+        return None
+    return {
+        "cb_code": info["cb_code"],
+        "cb_name": info["cb_name"],
+        "cb_price": cb_price,
+        "conversion_price": info["conversion_price"],
+    }
+
+
+# ---- 保留旧接口兼容 ----
+
 def get_stock_info(stock_code: str) -> Optional[dict]:
-    """
-    获取正股基本信息（名称等）
-    """
+    """保留，暂未使用"""
     try:
         df = ak.stock_individual_info_em(symbol=stock_code)
-        info = {row['item']: row['value'] for _, row in df.iterrows()}
-        return info
+        return {row["item"]: row["value"] for _, row in df.iterrows()}
     except Exception:
         return None
