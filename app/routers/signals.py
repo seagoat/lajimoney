@@ -162,7 +162,18 @@ async def _run_scan(scan_id: str, settings: dict):
                     executed_trades.append({
                         'signal_id': signal_id,
                         'trade_id': trade_id,
-                        **sig,
+                        'cb_code': sig['cb_code'],
+                        'cb_name': sig['cb_name'],
+                        'stock_code': sig['stock_code'],
+                        'stock_price': sig['stock_price'],
+                        'cb_price': sig['cb_price'],
+                        'conversion_price': sig.get('conversion_price'),
+                        'conversion_value': sig.get('conversion_value'),
+                        'premium_rate': sig.get('premium_rate'),
+                        'discount_space': sig.get('discount_space'),
+                        'buy_price': sig['target_buy_price'],
+                        'buy_shares': sig['target_shares'],
+                        'trade_type': sig.get('trade_type', 'HEDGE'),
                         'buy_amount': buy_amount,
                     })
 
