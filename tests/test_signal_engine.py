@@ -8,8 +8,8 @@ from app.services.signal_engine import (
 
 def test_conversion_value():
     # 转股价值 = (100 / 转股价) * 正股价
-    # (100 / 10) * 8 = 800
-    assert calculate_conversion_value(8.0, 10.0) == 800.0
+    # (100 / 10) * 80 = 800
+    assert calculate_conversion_value(80.0, 10.0) == 800.0
 
 
 def test_conversion_value_zero_price():
@@ -25,7 +25,7 @@ def test_premium_rate_positive():
 def test_premium_rate_negative():
     # 折价：转债便宜了
     # (8 / 10 - 1) * 100 = -20%
-    assert calculate_premium_rate(8.0, 10.0) == -20.0
+    assert calculate_premium_rate(8.0, 10.0) == pytest.approx(-20.0)
 
 
 def test_premium_rate_zero_conversion_value():

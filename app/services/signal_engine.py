@@ -1,17 +1,16 @@
 """
 可转债套利信号计算引擎
 """
-from app.services.data_fetcher import get_stock_price, get_cb_info_by_stock
 from app.config import DISCOUNT_THRESHOLD, TARGET_LOT_SIZE
 
 
-def calculate_conversion_value(cb_price: float, conversion_price: float) -> float:
+def calculate_conversion_value(stock_price: float, conversion_price: float) -> float:
     """
     转股价值 = (100 / 转股价) * 正股价
     """
     if conversion_price <= 0:
         return 0.0
-    return (100.0 / conversion_price) * cb_price
+    return (100.0 / conversion_price) * stock_price
 
 
 def calculate_premium_rate(cb_price: float, conversion_value: float) -> float:
@@ -35,6 +34,7 @@ def scan_single_stock(stock_code: str, stock_price: float) -> dict | None:
     扫描单只正股对应的转债
     返回信号字典或None（不满足条件）
     """
+    from app.services.data_fetcher import get_cb_info_by_stock
     cb_info = get_cb_info_by_stock(stock_code)
     if not cb_info:
         return None
@@ -69,6 +69,7 @@ def scan_portfolio(stock_codes: list[str]) -> list[dict]:
     扫描一组正股，返回所有满足条件的信号
     按折价空间从大到小排序
     """
+    from app.services.data_fetcher import get_stock_price
     signals = []
     for code in stock_codes:
         price = get_stock_price(code)
