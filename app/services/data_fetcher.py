@@ -62,8 +62,12 @@ def _get_bulk_prices(stock_codes: list[str]) -> dict[str, float]:
                     start = r.text.find(var_name)
                     if start == -1:
                         continue
-                    end = r.text.find('"', start)
-                    inner = r.text[start:end + 1].split('"')[1]
+                    # 开引号在 var_name 之后（var_name末尾是=），闭引号在下一个 "
+                    open_quote = start + len(var_name) + 1
+                    close_quote = r.text.find('"', open_quote + 1)
+                    if close_quote == -1:
+                        continue
+                    inner = r.text[open_quote:close_quote]
                     parts = inner.split(",")
                     if len(parts) < 10:
                         continue
@@ -141,11 +145,17 @@ def _get_cb_price(cb_code: str) -> Optional[float]:
         )
         r.encoding = "gbk"
         text = r.text.strip()
-        if "=" not in text:
+        var_name = f"hq_str_{prefix}{cb_code}"
+        start = text.find(var_name)
+        if start == -1:
             return None
-        inner = text.split('"')[1]
+        open_quote = start + len(var_name) + 1
+        close_quote = text.find('"', open_quote + 1)
+        if close_quote == -1:
+            return None
+        inner = text[open_quote:close_quote]
         parts = inner.split(",")
-        if len(parts) < 10:
+        if len(parts) < 4:
             return None
         price = float(parts[3])
         return price if price > 0 else None
@@ -170,6 +180,51 @@ def get_cb_info_by_stock_with_price(stock_code: str) -> Optional[dict]:
 
 # ---- 全量转债扫描（all模式） ----
 
+def _get_bulk_cb_prices(cb_codes: list[str]) -> dict[str, float]:
+    """
+    批量获取转债价格（新浪，每请求最多50个代码）
+    返回 {cb_code: price}
+    """
+    results = {}
+
+    def _cb_prefix(code: str) -> str:
+        return f"sz{code}" if code.startswith("1") else f"sh{code}"
+
+    for i in range(0, len(cb_codes), 50):
+        batch = cb_codes[i:i + 50]
+        prefixes = [_cb_prefix(c) for c in batch]
+        codes_str = ",".join(prefixes)
+        try:
+            r = requests.get(
+                f"https://hq.sinajs.cn/list={codes_str}",
+                headers={"Referer": "http://finance.sina.com.cn", "User-Agent": "Mozilla/5.0"},
+                timeout=10,
+            )
+            r.encoding = "gbk"
+            for code, prefix in zip(batch, prefixes):
+                try:
+                    var_name = f"hq_str_{prefix}"
+                    start = r.text.find(var_name)
+                    if start == -1:
+                        continue
+                    open_quote = start + len(var_name) + 1
+                    close_quote = r.text.find('"', open_quote + 1)
+                    if close_quote == -1:
+                        continue
+                    inner = r.text[open_quote:close_quote]
+                    parts = inner.split(",")
+                    if len(parts) < 4:
+                        continue
+                    price = float(parts[3])
+                    if price > 0:
+                        results[code] = price
+                except Exception:
+                    continue
+        except Exception:
+            continue
+    return results
+
+
 def get_all_cb_with_prices() -> list[dict]:
     """
     获取全量转债及其正股价格
@@ -178,10 +233,13 @@ def get_all_cb_with_prices() -> list[dict]:
     if not _cb_list_cache:
         _load_cb_info()
 
-    # 收集所有正股代码
+    # 收集所有正股代码和转债代码
     all_stock_codes = list({c["stock_code"] for c in _cb_list_cache})
-    # 批量获取正股价格
+    all_cb_codes = [c["cb_code"] for c in _cb_list_cache]
+
+    # 批量获取正股价格和转债价格
     stock_prices = _get_bulk_prices(all_stock_codes)
+    cb_prices = _get_bulk_cb_prices(all_cb_codes)
 
     results = []
     for cb in _cb_list_cache:
@@ -189,7 +247,7 @@ def get_all_cb_with_prices() -> list[dict]:
         stock_price = stock_prices.get(stock_code)
         if stock_price is None:
             continue
-        cb_price = _get_cb_price(cb["cb_code"])
+        cb_price = cb_prices.get(cb["cb_code"])
         if cb_price is None:
             continue
         results.append({
