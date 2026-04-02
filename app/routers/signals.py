@@ -49,7 +49,7 @@ async def trigger_scan():
     return result
 
 
-@router.post("/scan-stream")
+@router.get("/scan-stream")
 async def scan_stream():
     """
     流式扫描接口，通过 SSE 实时推送每只正股的扫描状态
