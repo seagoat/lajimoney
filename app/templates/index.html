@@ -156,10 +156,14 @@ function triggerScan() {
             resultDiv2.style.display = 'block';
             if (finalResult.signals_found > 0) {
                 let html = `<p class="profit"><strong>扫描完成，发现 ${finalResult.signals_found} 个信号，已模拟买入：</strong></p>`;
-                html += '<table style="margin-top:10px;width:100%"><thead><tr><th>转债</th><th>买价</th><th>张数</th><th>溢价率</th><th>折价空间</th></tr></thead><tbody>';
+                html += '<table style="margin-top:10px;width:100%"><thead><tr><th>转债</th><th>类型</th><th>买价</th><th>张数</th><th>溢价率</th><th>折价空间</th></tr></thead><tbody>';
                 for (const t of finalResult.trades) {
+                    const tradeTypeLabel = t.trade_type === 'NAKED'
+                        ? '<span style="background:#f39c12;color:#fff;padding:1px 4px;border-radius:3px;font-size:11px;">裸套</span>'
+                        : '<span style="background:#27ae60;color:#fff;padding:1px 4px;border-radius:3px;font-size:11px;">对冲</span>';
                     html += `<tr>
                         <td>${t.cb_name} (${t.cb_code})</td>
+                        <td>${tradeTypeLabel}</td>
                         <td>${t.buy_price}</td>
                         <td>${t.buy_shares}</td>
                         <td class="${t.premium_rate < 0 ? 'profit' : 'loss'}">${t.premium_rate.toFixed(2)}%</td>

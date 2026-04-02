@@ -37,6 +37,61 @@
         </div>
 
         <button type="submit" class="btn btn-primary">保存设置</button>
+
+        <div class="card" style="margin-top: 20px;">
+            <h2>交易成本设置</h2>
+            <div class="form-group">
+                <label>股票券商佣金率</label>
+                <input type="number" name="stock_broker_fee" id="stock_broker_fee"
+                       step="0.0001" min="0" placeholder="默认 0.0001（万1）">
+                <small style="color:#888;display:block;margin-top:4px;">
+                    买卖均收，默认万1（0.0001）
+                </small>
+            </div>
+
+            <div class="form-group">
+                <label>股票印花税率</label>
+                <input type="number" name="stock_stamp_tax" id="stock_stamp_tax"
+                       step="0.0001" min="0" placeholder="默认 0.0015（千1.5）">
+                <small style="color:#888;display:block;margin-top:4px;">
+                    仅卖出时收取，默认千1.5（0.0015）
+                </small>
+            </div>
+
+            <div class="form-group">
+                <label>转债券商佣金率</label>
+                <input type="number" name="cb_broker_fee" id="cb_broker_fee"
+                       step="0.00001" min="0" placeholder="默认 0.00006（万0.6）">
+                <small style="color:#888;display:block;margin-top:4px;">
+                    买卖均收，默认万0.6（0.00006）
+                </small>
+            </div>
+        </div>
+
+        <div class="card" style="margin-top: 20px;">
+            <h2>裸套模式（无底仓）</h2>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" name="naked_enabled" id="naked_enabled"
+                           style="width: auto; margin-right: 8px;">
+                    启用裸套模式（底仓为空时）
+                </label>
+                <small style="color:#888;display:block;margin-top:4px;">
+                    开启后，当底仓为空时会使用裸套折价阈值扫描全市场转债
+                </small>
+            </div>
+
+            <div class="form-group">
+                <label>裸套折价阈值（%）</label>
+                <input type="number" name="naked_discount_threshold" id="naked_discount_threshold"
+                       step="0.1" placeholder="默认 -2.0">
+                <small style="color:#888;display:block;margin-top:4px;">
+                    裸套模式只买溢价率低于此值的转债（如 -2.0 表示溢价率 &lt; -2% 才触发）
+                </small>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="margin-top: 15px;">保存设置</button>
     </form>
     <div id="msg" style="margin-top:12px;"></div>
 </div>
@@ -48,6 +103,11 @@ async function loadSettings() {
     document.getElementById('discount_threshold').value = s.discount_threshold;
     document.getElementById('target_lot_size').value = s.target_lot_size;
     document.getElementById('scan_mode').value = s.scan_mode;
+    document.getElementById('stock_broker_fee').value = s.stock_broker_fee;
+    document.getElementById('stock_stamp_tax').value = s.stock_stamp_tax;
+    document.getElementById('cb_broker_fee').value = s.cb_broker_fee;
+    document.getElementById('naked_discount_threshold').value = s.naked_discount_threshold;
+    document.getElementById('naked_enabled').checked = s.naked_enabled;
 }
 
 document.getElementById('settingsForm').onsubmit = async (e) => {
@@ -57,6 +117,11 @@ document.getElementById('settingsForm').onsubmit = async (e) => {
         discount_threshold: parseFloat(form.get('discount_threshold')),
         target_lot_size: parseInt(form.get('target_lot_size')),
         scan_mode: form.get('scan_mode'),
+        stock_broker_fee: parseFloat(form.get('stock_broker_fee') || '0.0001'),
+        stock_stamp_tax: parseFloat(form.get('stock_stamp_tax') || '0.0015'),
+        cb_broker_fee: parseFloat(form.get('cb_broker_fee') || '0.00006'),
+        naked_discount_threshold: parseFloat(form.get('naked_discount_threshold') || '-2.0'),
+        naked_enabled: form.get('naked_enabled') === 'on',
     };
     const res = await fetch('/api/settings', {
         method: 'PUT',
