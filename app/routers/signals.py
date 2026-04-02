@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Query
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Query, BackgroundTasks
+from fastapi.responses import StreamingResponse, JSONResponse
 from typing import Optional
 import aiosqlite
 import json
@@ -9,6 +9,9 @@ from app.config import DB_PATH
 from app.services.signal_engine import scan_portfolio_gen, scan_all_cb_gen
 
 router = APIRouter(prefix="/api/signals", tags=["信号管理"])
+
+# 后台扫描状态存储
+_scan_results: dict = {}
 
 
 async def get_settings() -> dict:
@@ -24,6 +27,10 @@ async def load_holdings() -> list[str]:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT stock_code FROM holdings")
         return [r['stock_code'] for r in await cursor.fetchall()]
+
+
+def log_msg(message, _type='info'):
+    pass  # 日志已在前端处理
 
 
 @router.get("", response_model=list[SignalResponse])
@@ -58,42 +65,39 @@ async def list_signals(
 
 @router.post("/scan")
 async def trigger_scan():
-    """手动触发一次扫描+模拟买入"""
+    """手动触发一次扫描+模拟买入（同步版本，立即返回结果）"""
     from app.services.trade_engine import execute_scan_and_trade
     result = await execute_scan_and_trade()
     return result
 
 
-@router.get("/settings")
-async def get_scan_settings():
-    """获取当前扫描设置"""
-    s = await get_settings()
-    return {
-        "discount_threshold": float(s.get("discount_threshold", "-1.0")),
-        "target_lot_size": int(s.get("target_lot_size", "10")),
-        "scan_mode": s.get("scan_mode", "holdings"),
-    }
-
-
-@router.get("/scan-stream")
-async def scan_stream():
+async def _run_scan(scan_id: str, settings: dict):
     """
-    流式扫描接口，通过 SSE 实时推送每只正股的扫描状态
+    后台运行扫描，把进度和结果写入 _scan_results
     """
-    async def event_generator():
-        settings = await get_settings()
-        discount_threshold = float(settings["discount_threshold"])
-        target_lot_size = int(settings["target_lot_size"])
-        scan_mode = settings["scan_mode"]
+    discount_threshold = float(settings["discount_threshold"])
+    target_lot_size = int(settings["target_lot_size"])
+    scan_mode = settings["scan_mode"]
 
+    _scan_results[scan_id] = {"status": "running", "steps": [], "signals": [], "done": False}
+
+    try:
         if scan_mode == "all":
             gen = scan_all_cb_gen(discount_threshold, target_lot_size, settings)
         else:
             stock_codes = await load_holdings()
             if not stock_codes:
-                yield f"event: error\ndata: {json.dumps({'message': '底仓为空，请先添加正股或切换到全量扫描模式'})}\n\n"
+                _scan_results[scan_id] = {
+                    "status": "error",
+                    "message": "底仓为空，请先添加正股或切换到全量扫描模式",
+                    "done": True,
+                }
                 return
-            yield f"event: start\ndata: {json.dumps({'total': len(stock_codes), 'message': f'开始扫描 {len(stock_codes)} 只底仓正股...'})}\n\n"
+            _scan_results[scan_id]["steps"].append({
+                "status": "start",
+                "total": len(stock_codes),
+                "message": f"开始扫描 {len(stock_codes)} 只底仓正股...",
+            })
             gen = scan_portfolio_gen(stock_codes, discount_threshold, target_lot_size)
 
         signals = []
@@ -103,13 +107,16 @@ async def scan_stream():
             async for step in gen:
                 if is_first and step['status'] not in ('error',):
                     is_first = False
-                    yield f"event: start\ndata: {json.dumps({'total': step['total'], 'message': step['message']}, ensure_ascii=False)}\n\n"
+                    _scan_results[scan_id]["steps"].append({
+                        "event": "start",
+                        **{k: v for k, v in step.items() if k in ('total', 'message')},
+                    })
 
-                yield f"event: step\ndata: {json.dumps(step, ensure_ascii=False)}\n\n"
+                step_data = {"event": "step", **step}
+                _scan_results[scan_id]["steps"].append(step_data)
 
                 if step['status'] == 'signal_found':
                     if 'stock_price' not in step or 'cb_code' not in step:
-                        log(f'信号步骤数据不完整，跳过: {step.get("message","")}', 'error')
                         continue
                     signals.append({
                         'cb_code': step['cb_code'],
@@ -126,14 +133,17 @@ async def scan_stream():
                         'trade_type': step.get('trade_type', 'HEDGE'),
                     })
         except Exception as e:
-            log(f'扫描过程异常: {str(e)}', 'error')
+            _scan_results[scan_id]["steps"].append({
+                "event": "error",
+                "message": f"扫描过程异常: {str(e)}",
+            })
 
-        # 写入数据库（finally 保证 done 事件总会被发出）
+        # 写入数据库
         executed_trades = []
         try:
             now = datetime.now().isoformat()
             async with aiosqlite.connect(DB_PATH) as db:
-                target_stocks = settings.get("scan_mode", "holdings") + "_mode"
+                target_stocks = scan_mode + "_mode"
                 cursor = await db.execute(
                     "INSERT INTO scan_log (scan_time, target_stocks, signals_found, status) VALUES (?, ?, ?, ?)",
                     (now, target_stocks, len(signals), 'SUCCESS')
@@ -142,7 +152,7 @@ async def scan_stream():
 
                 for sig in signals:
                     cursor = await db.execute(
-                        """INSERT INTO signals
+                        """ INSERT INTO signals
                         (scan_log_id, cb_code, cb_name, stock_code, stock_price, cb_price,
                          conversion_price, conversion_value, premium_rate, discount_space,
                          target_buy_price, target_shares, status)
@@ -178,16 +188,72 @@ async def scan_stream():
 
                 await db.commit()
         except Exception as e:
-            log(f'数据库写入异常: {str(e)}', 'error')
+            _scan_results[scan_id]["steps"].append({
+                "event": "error",
+                "message": f"数据库写入异常: {str(e)}",
+            })
 
-        yield f"event: done\ndata: {json.dumps({'signals_found': len(signals), 'trades': executed_trades, 'message': f'扫描完成，发现 {len(signals)} 个信号' if signals else '无符合条件信号'}, ensure_ascii=False)}\n\n"
+        _scan_results[scan_id]["done"] = True
+        _scan_results[scan_id]["status"] = "done"
+        _scan_results[scan_id]["signals_found"] = len(signals)
+        _scan_results[scan_id]["trades"] = executed_trades
+        _scan_results[scan_id]["message"] = (
+            f"扫描完成，发现 {len(signals)} 个信号" if signals else "无符合条件信号"
+        )
+
+    except Exception as e:
+        _scan_results[scan_id] = {
+            "status": "error",
+            "message": str(e),
+            "done": True,
+        }
+
+
+@router.get("/settings")
+async def get_scan_settings():
+    """获取当前扫描设置"""
+    s = await get_settings()
+    return {
+        "discount_threshold": float(s.get("discount_threshold", "-1.0")),
+        "target_lot_size": int(s.get("target_lot_size", "10")),
+        "scan_mode": s.get("scan_mode", "holdings"),
+    }
+
+
+@router.get("/scan-stream")
+async def scan_stream():
+    """
+    流式扫描接口（SSE），已改为轮询模式兼容
+    先尝试流式，fallback 到轮询
+    """
+    scan_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
+    settings = await get_settings()
+
+    async def event_generator():
+        # 启动后台扫描
+        import asyncio
+        asyncio.create_task(_run_scan(scan_id, settings))
+
+        # 等待最多 120 秒，每秒检查一次 _scan_results
+        for _ in range(120):
+            await asyncio.sleep(1)
+            result = _scan_results.get(scan_id)
+            if result:
+                for step in result.get("steps", []):
+                    yield f"event: {step.get('event', 'step')}\ndata: {json.dumps({k: v for k, v in step.items() if k != 'event'}, ensure_ascii=False)}\n\n"
+                    if step.get('event') == 'error':
+                        yield f"event: done\ndata: {json.dumps({'signals_found': 0, 'trades': [], 'message': step.get('message', '发生错误')}, ensure_ascii=False)}\n\n"
+                        return
+                if result.get("done"):
+                    yield f"event: done\ndata: {json.dumps({'signals_found': result.get('signals_found', 0), 'trades': result.get('trades', []), 'message': result.get('message', '')}, ensure_ascii=False)}\n\n"
+                    return
+        yield f"event: done\ndata: {json.dumps({'signals_found': 0, 'trades': [], 'message': '扫描超时'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         }
     )
