@@ -132,6 +132,9 @@ function triggerScan() {
         const data = JSON.parse(e.data);
         finalResult = data;
         progressFill.style.width = '100%';
+        statusDiv.textContent = '扫描完成';
+        btn.disabled = false;
+        btn.textContent = '手动触发扫描';
         es.close();
         currentEventSource = null;
     });

@@ -106,32 +106,36 @@ async def scan_portfolio_gen(stock_codes: list[str], discount_threshold: float, 
     from app.services.data_fetcher import get_stock_price, get_cb_info_by_stock_with_price
 
     for i, code in enumerate(stock_codes):
-        step = {
+        # 先 yield 一条 scanning 状态（仅作为进度反馈用）
+        yield {
             'step': i + 1,
             'total': len(stock_codes),
             'stock_code': code,
             'status': 'scanning',
             'message': f'正在扫描 {code}...',
         }
-        yield step
 
         price = await asyncio.to_thread(get_stock_price, code)
         if price is None:
-            step.update({
+            yield {
+                'step': i + 1,
+                'total': len(stock_codes),
+                'stock_code': code,
                 'status': 'skip',
                 'message': f'{code}：无法获取正股价格，跳过',
-            })
-            yield step
+            }
             continue
 
         cb_info = await asyncio.to_thread(get_cb_info_by_stock_with_price, code)
         if cb_info is None:
-            step.update({
+            yield {
+                'step': i + 1,
+                'total': len(stock_codes),
+                'stock_code': code,
                 'status': 'skip',
                 'message': f'{code} 正股:{price} → 无对应转债或无法获取转债价格，跳过',
                 'stock_price': price,
-            })
-            yield step
+            }
             continue
 
         cb_price = cb_info['cb_price']
