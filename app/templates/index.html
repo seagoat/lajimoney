@@ -29,8 +29,9 @@
     {% else %}
     <p>今日暂无信号</p>
     {% endif %}
-    <button class="btn btn-primary" onclick="triggerScan()"
+    <button id="scanBtn" class="btn btn-primary" onclick="triggerScan()"
             style="margin-top: 10px;">手动触发扫描</button>
+    <div id="scanResult" style="margin-top: 15px; display: none;"></div>
 </div>
 
 <div class="card">
@@ -41,13 +42,45 @@
 <script>
 async function triggerScan() {
     if (!confirm('确定要触发一次扫描吗？')) return;
-    const res = await fetch('/api/signals/scan', { method: 'POST' });
-    const data = await res.json();
-    if (data.status === 'success') {
-        alert(`扫描完成，发现 ${data.signals_found} 个信号`);
-        location.reload();
-    } else {
-        alert('扫描失败: ' + data.status);
+    const btn = document.getElementById('scanBtn');
+    const resultDiv = document.getElementById('scanResult');
+    btn.disabled = true;
+    btn.textContent = '扫描中...';
+    resultDiv.style.display = 'none';
+
+    try {
+        const res = await fetch('/api/signals/scan', { method: 'POST' });
+        const data = await res.json();
+        resultDiv.style.display = 'block';
+        if (data.status === 'success') {
+            if (data.signals_found > 0) {
+                let html = `<p class="profit">扫描完成，发现 <strong>${data.signals_found}</strong> 个信号，已模拟买入：</p>`;
+                html += '<table style="margin-top:10px;width:100%"><thead><tr><th>转债</th><th>买价</th><th>张数</th><th>溢价率</th><th>折价空间</th></tr></thead><tbody>';
+                for (const t of data.trades) {
+                    html += `<tr>
+                        <td>${t.cb_name} (${t.cb_code})</td>
+                        <td>${t.buy_price}</td>
+                        <td>${t.buy_shares}</td>
+                        <td class="${t.premium_rate < 0 ? 'profit' : 'loss'}">${t.premium_rate.toFixed(2)}%</td>
+                        <td>${t.discount_space.toFixed(2)}</td>
+                    </tr>`;
+                }
+                html += '</tbody></table>';
+                resultDiv.innerHTML = html;
+            } else {
+                resultDiv.innerHTML = '<p>扫描完成，今日无符合条件信号（折价率需 < -1%）</p>';
+            }
+        } else if (data.status === 'no_holdings') {
+            resultDiv.innerHTML = '<p class="loss">扫描失败：底仓为空，请先在「底仓管理」添加正股</p>';
+        } else {
+            resultDiv.innerHTML = `<p class="loss">扫描失败：${data.status}</p>`;
+        }
+    } catch (e) {
+        resultDiv.style.display = 'block';
+        resultDiv.innerHTML = `<p class="loss">扫描异常：${e.message}</p>`;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '手动触发扫描';
     }
 }
 </script>
