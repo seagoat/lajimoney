@@ -10,6 +10,7 @@ async def get_db():
 
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
+        # 创建所有表（如果不存在）
         await db.executescript("""
             CREATE TABLE IF NOT EXISTS holdings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,9 +82,40 @@ async def init_db():
                 value TEXT NOT NULL,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
-
-            INSERT OR IGNORE INTO settings (key, value) VALUES ('discount_threshold', '-1.0');
-            INSERT OR IGNORE INTO settings (key, value) VALUES ('target_lot_size', '10');
-            INSERT OR IGNORE INTO settings (key, value) VALUES ('scan_mode', 'holdings');
         """)
+        await db.commit()
+
+        # 迁移：新增列和设置（兼容已存在的数据库）
+        # 检查 trade_type 列是否已存在
+        cursor = await db.execute("PRAGMA table_info(trades)")
+        columns = [row[1] for row in await cursor.fetchall()]
+        if 'trade_type' not in columns:
+            await db.execute("ALTER TABLE trades ADD COLUMN trade_type TEXT DEFAULT 'HEDGE'")
+        await db.commit()
+
+        # 插入新的 settings（IGNORE 跳过已存在的 key）
+        new_settings = [
+            ('stock_broker_fee', '0.0001'),
+            ('stock_stamp_tax', '0.0015'),
+            ('cb_broker_fee', '0.00006'),
+            ('naked_discount_threshold', '-2.0'),
+            ('naked_enabled', 'true'),
+        ]
+        for key, value in new_settings:
+            await db.execute(
+                "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+                (key, value)
+            )
+
+        # 确保旧的 settings 也有默认值
+        old_settings = [
+            ('discount_threshold', '-1.0'),
+            ('target_lot_size', '10'),
+            ('scan_mode', 'holdings'),
+        ]
+        for key, value in old_settings:
+            await db.execute(
+                "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+                (key, value)
+            )
         await db.commit()
