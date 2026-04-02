@@ -4,7 +4,7 @@
 import aiosqlite
 from datetime import datetime
 from app.config import DB_PATH
-from app.services.signal_engine import scan_portfolio
+from app.services.signal_engine import scan_portfolio, calc_net_profit_hedge, calc_net_profit_naked
 
 
 async def execute_scan_and_trade():
@@ -111,13 +111,47 @@ async def settle_pending_trades():
         for row in rows:
             trade_id = row['id']
             cb_code = row['cb_code']
+            trade_type = row.get('trade_type', 'HEDGE')
 
-            # 模拟卖出：使用昨日收盘价作为今日开盘价
-            # 实际这里应该获取次日开盘价，简化处理用买入价*1.001模拟
+            # 读取交易成本设置
+            cost_cursor = await db.execute(
+                "SELECT key, value FROM settings WHERE key IN ('stock_broker_fee','stock_stamp_tax','cb_broker_fee')"
+            )
+            cost_rows = await cost_cursor.fetchall()
+            cost_settings = {r['key']: float(r['value']) for r in cost_rows}
+            stock_broker_fee = cost_settings.get('stock_broker_fee', 0.0001)
+            stock_stamp_tax = cost_settings.get('stock_stamp_tax', 0.0015)
+            cb_broker_fee = cost_settings.get('cb_broker_fee', 0.00006)
+
+            # 模拟卖出：简化处理用买入价*1.001模拟次日开盘价
             sell_price = round(row['buy_price'] * 1.001, 2)
-            sell_amount = sell_price * 100 * row['buy_shares']
-            profit = sell_amount - row['buy_amount']
-            profit_rate = (profit / row['buy_amount']) * 100
+
+            if trade_type == 'NAKED':
+                # 裸套：CB买入 → 转股 → 次日卖出正股
+                conversion_price = row.get('conversion_price', 0) or row.get('cb_price', 100.0)
+                if conversion_price <= 0:
+                    conversion_price = 100.0
+                net_profit, net_profit_rate = calc_net_profit_naked(
+                    row['buy_price'], row['buy_shares'],
+                    sell_price, conversion_price,
+                    stock_broker_fee, cb_broker_fee
+                )
+                profit = net_profit
+                profit_rate = net_profit_rate
+                sell_amount = round(
+                    sell_price * (100.0 / conversion_price) * row['buy_shares']
+                    - sell_price * (100.0 / conversion_price) * row['buy_shares'] * stock_broker_fee,
+                    2
+                )
+            else:
+                # 持仓对冲：卖出正股覆盖成本
+                net_profit, net_profit_rate = calc_net_profit_hedge(
+                    row['buy_price'], row['buy_shares'], sell_price,
+                    stock_broker_fee, stock_stamp_tax, cb_broker_fee
+                )
+                profit = net_profit
+                profit_rate = net_profit_rate
+                sell_amount = sell_price * 100 * row['buy_shares']
 
             now = datetime.now()
             await db.execute(
