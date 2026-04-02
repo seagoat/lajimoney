@@ -83,3 +83,17 @@ class OverviewResponse(BaseModel):
     win_rate: float
     pending_count: int
     today_signals: int
+
+
+# === 设置模型 ===
+
+class SettingsResponse(BaseModel):
+    discount_threshold: float
+    target_lot_size: int
+    scan_mode: str  # 'holdings' | 'all'
+
+
+class SettingsUpdate(BaseModel):
+    discount_threshold: Optional[float] = None
+    target_lot_size: Optional[int] = None
+    scan_mode: Optional[str] = None

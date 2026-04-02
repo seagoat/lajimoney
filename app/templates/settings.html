@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>扫描设置</h1>
+
+<div class="card">
+    <h2>扫描参数</h2>
+    <form id="settingsForm">
+        <div class="form-group">
+            <label>折价率阈值（%）</label>
+            <input type="number" name="discount_threshold" id="discount_threshold"
+                   step="0.1" required>
+            <small style="color:#888;display:block;margin-top:4px;">
+                溢价率低于此值时触发套利信号，默认 -1.0（如设为 -2.0 则只在大折价时触发）
+            </small>
+        </div>
+
+        <div class="form-group">
+            <label>每次买入张数</label>
+            <input type="number" name="target_lot_size" id="target_lot_size"
+                   min="1" max="100" required>
+            <small style="color:#888;display:block;margin-top:4px;">
+                每次模拟买入的转债张数，10张=1手
+            </small>
+        </div>
+
+        <div class="form-group">
+            <label>扫描模式</label>
+            <select name="scan_mode" id="scan_mode" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px;">
+                <option value="holdings">仅扫描持仓正股</option>
+                <option value="all">全市场转债扫描</option>
+            </select>
+            <small style="color:#888;display:block;margin-top:4px;">
+                仅持仓：只扫描底仓中的正股对应转债（速度快）<br>
+                全市场：扫描所有可转债（耗时长，约3-5分钟）
+            </small>
+        </div>
+
+        <button type="submit" class="btn btn-primary">保存设置</button>
+    </form>
+    <div id="msg" style="margin-top:12px;"></div>
+</div>
+
+<script>
+async function loadSettings() {
+    const res = await fetch('/api/settings');
+    const s = await res.json();
+    document.getElementById('discount_threshold').value = s.discount_threshold;
+    document.getElementById('target_lot_size').value = s.target_lot_size;
+    document.getElementById('scan_mode').value = s.scan_mode;
+}
+
+document.getElementById('settingsForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const form = new FormData(e.target);
+    const body = {
+        discount_threshold: parseFloat(form.get('discount_threshold')),
+        target_lot_size: parseInt(form.get('target_lot_size')),
+        scan_mode: form.get('scan_mode'),
+    };
+    const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+    });
+    const msg = document.getElementById('msg');
+    if (res.ok) {
+        msg.innerHTML = '<span style="color:#27ae60">设置已保存</span>';
+    } else {
+        const err = await res.json();
+        msg.innerHTML = '<span style="color:#e74c3c">保存失败: ' + err.detail + '</span>';
+    }
+};
+
+loadSettings();
+</script>
+{% endblock %}

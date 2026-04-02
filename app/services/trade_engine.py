@@ -9,10 +9,16 @@ from app.services.signal_engine import scan_portfolio
 
 async def execute_scan_and_trade():
     """
-    执行一次完整的扫描 + 模拟买入
+    执行一次完整的扫描 + 模拟买入（使用当前设置）
     """
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
+
+        # 读取设置
+        cursor = await db.execute("SELECT key, value FROM settings")
+        settings = {r['key']: r['value'] for r in await cursor.fetchall()}
+        discount_threshold = float(settings.get("discount_threshold", "-1.0"))
+        target_lot_size = int(settings.get("target_lot_size", "10"))
 
         # 1. 获取持仓正股列表
         cursor = await db.execute("SELECT stock_code FROM holdings")
@@ -23,7 +29,7 @@ async def execute_scan_and_trade():
             return {"status": "no_holdings", "signals": []}
 
         # 2. 执行扫描
-        signals = scan_portfolio(stock_codes)
+        signals = scan_portfolio(stock_codes, discount_threshold, target_lot_size)
 
         # 3. 记录扫描日志
         now = datetime.now()

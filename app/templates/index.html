@@ -24,6 +24,9 @@
 
 <div class="card" style="margin-top: 20px;">
     <h2>扫描监控</h2>
+    <p id="currentSettings" style="margin-bottom:8px;color:#888;font-size:13px;">
+        加载中...
+    </p>
     <button id="scanBtn" class="btn btn-primary" onclick="triggerScan()"
             style="margin-top: 5px;">手动触发扫描</button>
     <div id="scanProgress" style="margin-top: 15px; display: none;">
@@ -44,6 +47,20 @@
 
 <script>
 let currentEventSource = null;
+
+// 加载并显示当前设置
+async function loadCurrentSettings() {
+    try {
+        const res = await fetch('/api/settings');
+        const s = await res.json();
+        const modeText = s.scan_mode === 'all' ? '全市场转债' : '仅持仓正股';
+        document.getElementById('currentSettings').textContent =
+            `当前模式: ${modeText} | 折价阈值: ${s.discount_threshold}% | 每次买入: ${s.target_lot_size}张`;
+    } catch (e) {
+        document.getElementById('currentSettings').textContent = '设置加载失败';
+    }
+}
+loadCurrentSettings();
 
 function log(message, type) {
     const container = document.getElementById('logContainer');
@@ -95,6 +112,7 @@ function triggerScan() {
         const data = JSON.parse(e.data);
         statusDiv.textContent = data.message;
         log(data.message);
+        loadCurrentSettings(); // 刷新显示最新设置
     });
 
     es.addEventListener('step', function(e) {

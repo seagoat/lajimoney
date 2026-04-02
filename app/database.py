@@ -75,5 +75,15 @@ async def init_db():
                 win_rate REAL DEFAULT 0.0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            INSERT OR IGNORE INTO settings (key, value) VALUES ('discount_threshold', '-1.0');
+            INSERT OR IGNORE INTO settings (key, value) VALUES ('target_lot_size', '10');
+            INSERT OR IGNORE INTO settings (key, value) VALUES ('scan_mode', 'holdings');
         """)
         await db.commit()
