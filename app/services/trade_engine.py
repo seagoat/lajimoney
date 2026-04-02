@@ -1,0 +1,139 @@
+"""
+模拟成交执行引擎
+"""
+import aiosqlite
+from datetime import datetime
+from app.config import DB_PATH
+from app.services.signal_engine import scan_portfolio
+
+
+async def execute_scan_and_trade():
+    """
+    执行一次完整的扫描 + 模拟买入
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        # 1. 获取持仓正股列表
+        cursor = await db.execute("SELECT stock_code FROM holdings")
+        rows = await cursor.fetchall()
+        stock_codes = [r['stock_code'] for r in rows]
+
+        if not stock_codes:
+            return {"status": "no_holdings", "signals": []}
+
+        # 2. 执行扫描
+        signals = scan_portfolio(stock_codes)
+
+        # 3. 记录扫描日志
+        now = datetime.now()
+        cursor = await db.execute(
+            "INSERT INTO scan_log (scan_time, target_stocks, signals_found, status) VALUES (?, ?, ?, ?)",
+            (now.isoformat(), ','.join(stock_codes), len(signals), 'SUCCESS')
+        )
+        scan_log_id = cursor.lastrowid
+
+        # 4. 记录信号并模拟买入
+        executed_trades = []
+        for sig in signals:
+            cursor = await db.execute(
+                """INSERT INTO signals
+                (scan_log_id, cb_code, cb_name, stock_code, stock_price, cb_price,
+                 conversion_price, conversion_value, premium_rate, discount_space,
+                 target_buy_price, target_shares, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')""",
+                (scan_log_id, sig['cb_code'], sig['cb_name'], sig['stock_code'],
+                 sig['stock_price'], sig['cb_price'], sig['conversion_price'],
+                 sig['conversion_value'], sig['premium_rate'], sig['discount_space'],
+                 sig['target_buy_price'], sig['target_shares'])
+            )
+            signal_id = cursor.lastrowid
+
+            # 模拟成交：买入
+            buy_amount = sig['target_buy_price'] * 100 * sig['target_shares']
+            cursor = await db.execute(
+                """INSERT INTO trades
+                (signal_id, cb_code, cb_name, buy_time, buy_price, buy_shares, buy_amount, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')""",
+                (signal_id, sig['cb_code'], sig['cb_name'],
+                 now.isoformat(), sig['target_buy_price'], sig['target_shares'], buy_amount)
+            )
+            trade_id = cursor.lastrowid
+
+            # 更新信号状态为已执行
+            await db.execute(
+                "UPDATE signals SET status = 'EXECUTED' WHERE id = ?",
+                (signal_id,)
+            )
+
+            executed_trades.append({
+                'signal_id': signal_id,
+                'trade_id': trade_id,
+                'cb_code': sig['cb_code'],
+                'cb_name': sig['cb_name'],
+                'buy_price': sig['target_buy_price'],
+                'buy_shares': sig['target_shares'],
+                'buy_amount': buy_amount,
+                'premium_rate': sig['premium_rate'],
+                'discount_space': sig['discount_space'],
+            })
+
+        await db.commit()
+
+        return {
+            "status": "success",
+            "scan_log_id": scan_log_id,
+            "signals_found": len(signals),
+            "trades": executed_trades,
+        }
+
+
+async def settle_pending_trades():
+    """
+    对所有 PENDING 状态的持仓执行卖出
+    模拟次日开盘卖出
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        cursor = await db.execute(
+            "SELECT * FROM trades WHERE status = 'PENDING'"
+        )
+        rows = await cursor.fetchall()
+
+        results = []
+        for row in rows:
+            trade_id = row['id']
+            cb_code = row['cb_code']
+
+            # 模拟卖出：使用昨日收盘价作为今日开盘价
+            # 实际这里应该获取次日开盘价，简化处理用买入价*1.001模拟
+            sell_price = round(row['buy_price'] * 1.001, 2)
+            sell_amount = sell_price * 100 * row['buy_shares']
+            profit = sell_amount - row['buy_amount']
+            profit_rate = (profit / row['buy_amount']) * 100
+
+            now = datetime.now()
+            await db.execute(
+                """UPDATE trades SET
+                sell_time = ?, sell_price = ?, sell_amount = ?,
+                profit = ?, profit_rate = ?, status = 'SOLD'
+                WHERE id = ?""",
+                (now.isoformat(), sell_price, sell_amount, profit, profit_rate, trade_id)
+            )
+
+            # 更新信号状态
+            await db.execute(
+                "UPDATE signals SET status = 'SETTLED' WHERE id = ?",
+                (row['signal_id'],)
+            )
+
+            results.append({
+                'trade_id': trade_id,
+                'cb_code': cb_code,
+                'profit': round(profit, 2),
+                'profit_rate': round(profit_rate, 4),
+            })
+
+        await db.commit()
+        return results
