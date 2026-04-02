@@ -99,32 +99,35 @@ async def scan_stream():
         signals = []
         is_first = True
 
-        async for step in gen:
-            if is_first and step['status'] not in ('error',):
-                is_first = False
-                yield f"event: start\ndata: {json.dumps({'total': step['total'], 'message': step['message']}, ensure_ascii=False)}\n\n"
+        try:
+            async for step in gen:
+                if is_first and step['status'] not in ('error',):
+                    is_first = False
+                    yield f"event: start\ndata: {json.dumps({'total': step['total'], 'message': step['message']}, ensure_ascii=False)}\n\n"
 
-            yield f"event: step\ndata: {json.dumps(step, ensure_ascii=False)}\n\n"
+                yield f"event: step\ndata: {json.dumps(step, ensure_ascii=False)}\n\n"
 
-            if step['status'] == 'signal_found':
-                # 防御：signal_found 步骤必须包含 stock_price 和 cb_price
-                if 'stock_price' not in step or 'cb_code' not in step:
-                    log(f'信号步骤数据不完整，跳过: {step.get("message","")}', 'error')
-                    continue
-                signals.append({
-                    'cb_code': step['cb_code'],
-                    'cb_name': step['cb_name'],
-                    'stock_code': step['stock_code'],
-                    'stock_price': step['stock_price'],
-                    'cb_price': step['cb_price'],
-                    'conversion_price': step.get('conversion_price'),
-                    'conversion_value': step.get('conversion_value'),
-                    'premium_rate': step.get('premium_rate'),
-                    'discount_space': step.get('discount_space'),
-                    'target_buy_price': round(step['cb_price'], 2),
-                    'target_shares': target_lot_size,
-                    'trade_type': step.get('trade_type', 'HEDGE'),
-                })
+                if step['status'] == 'signal_found':
+                    # 防御：signal_found 步骤必须包含 stock_price 和 cb_code
+                    if 'stock_price' not in step or 'cb_code' not in step:
+                        log(f'信号步骤数据不完整，跳过: {step.get("message","")}', 'error')
+                        continue
+                    signals.append({
+                        'cb_code': step['cb_code'],
+                        'cb_name': step['cb_name'],
+                        'stock_code': step['stock_code'],
+                        'stock_price': step['stock_price'],
+                        'cb_price': step['cb_price'],
+                        'conversion_price': step.get('conversion_price'),
+                        'conversion_value': step.get('conversion_value'),
+                        'premium_rate': step.get('premium_rate'),
+                        'discount_space': step.get('discount_space'),
+                        'target_buy_price': round(step['cb_price'], 2),
+                        'target_shares': target_lot_size,
+                        'trade_type': step.get('trade_type', 'HEDGE'),
+                    })
+        except Exception as e:
+            log(f'扫描过程异常: {str(e)}', 'error')
 
         # 写入数据库
         now = datetime.now().isoformat()
