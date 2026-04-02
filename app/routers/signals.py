@@ -87,7 +87,7 @@ async def scan_stream():
         scan_mode = settings["scan_mode"]
 
         if scan_mode == "all":
-            gen = scan_all_cb_gen(discount_threshold, target_lot_size)
+            gen = scan_all_cb_gen(discount_threshold, target_lot_size, settings)
         else:
             stock_codes = await load_holdings()
             if not stock_codes:
@@ -119,6 +119,7 @@ async def scan_stream():
                     'discount_space': step['discount_space'],
                     'target_buy_price': round(step['cb_price'], 2),
                     'target_shares': target_lot_size,
+                    'trade_type': step.get('trade_type', 'HEDGE'),
                 })
 
         # 写入数据库
@@ -140,7 +141,7 @@ async def scan_stream():
                      target_buy_price, target_shares, status)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')""",
                     (scan_log_id, sig['cb_code'], sig['cb_name'], sig['stock_code'],
-                     sig['stock_price'], sig['cb_price'], sig['conversion_value'],
+                     sig['stock_price'], sig['cb_price'], sig['conversion_price'],
                      sig['conversion_value'], sig['premium_rate'], sig['discount_space'],
                      sig['target_buy_price'], sig['target_shares'])
                 )
@@ -149,10 +150,11 @@ async def scan_stream():
                 buy_amount = sig['target_buy_price'] * 100 * sig['target_shares']
                 cursor = await db.execute(
                     """INSERT INTO trades
-                    (signal_id, cb_code, cb_name, buy_time, buy_price, buy_shares, buy_amount, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')""",
+                    (signal_id, cb_code, cb_name, buy_time, buy_price, buy_shares, buy_amount, status, trade_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)""",
                     (signal_id, sig['cb_code'], sig['cb_name'],
-                     now, sig['target_buy_price'], sig['target_shares'], buy_amount)
+                     now, sig['target_buy_price'], sig['target_shares'], buy_amount,
+                     sig.get('trade_type', 'HEDGE'))
                 )
                 trade_id = cursor.lastrowid
                 executed_trades.append({
