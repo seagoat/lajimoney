@@ -108,7 +108,6 @@ async def scan_stream():
                 yield f"event: step\ndata: {json.dumps(step, ensure_ascii=False)}\n\n"
 
                 if step['status'] == 'signal_found':
-                    # 防御：signal_found 步骤必须包含 stock_price 和 cb_code
                     if 'stock_price' not in step or 'cb_code' not in step:
                         log(f'信号步骤数据不完整，跳过: {step.get("message","")}', 'error')
                         continue
@@ -129,54 +128,57 @@ async def scan_stream():
         except Exception as e:
             log(f'扫描过程异常: {str(e)}', 'error')
 
-        # 写入数据库
-        now = datetime.now().isoformat()
-        async with aiosqlite.connect(DB_PATH) as db:
-            target_stocks = settings.get("scan_mode", "holdings") + "_mode"
-            cursor = await db.execute(
-                "INSERT INTO scan_log (scan_time, target_stocks, signals_found, status) VALUES (?, ?, ?, ?)",
-                (now, target_stocks, len(signals), 'SUCCESS')
-            )
-            scan_log_id = cursor.lastrowid
-
-            executed_trades = []
-            for sig in signals:
+        # 写入数据库（finally 保证 done 事件总会被发出）
+        executed_trades = []
+        try:
+            now = datetime.now().isoformat()
+            async with aiosqlite.connect(DB_PATH) as db:
+                target_stocks = settings.get("scan_mode", "holdings") + "_mode"
                 cursor = await db.execute(
-                    """INSERT INTO signals
-                    (scan_log_id, cb_code, cb_name, stock_code, stock_price, cb_price,
-                     conversion_price, conversion_value, premium_rate, discount_space,
-                     target_buy_price, target_shares, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')""",
-                    (scan_log_id, sig['cb_code'], sig['cb_name'], sig['stock_code'],
-                     sig['stock_price'], sig['cb_price'], sig['conversion_price'],
-                     sig['conversion_value'], sig['premium_rate'], sig['discount_space'],
-                     sig['target_buy_price'], sig['target_shares'])
+                    "INSERT INTO scan_log (scan_time, target_stocks, signals_found, status) VALUES (?, ?, ?, ?)",
+                    (now, target_stocks, len(signals), 'SUCCESS')
                 )
-                signal_id = cursor.lastrowid
+                scan_log_id = cursor.lastrowid
 
-                buy_amount = sig['target_buy_price'] * 100 * sig['target_shares']
-                cursor = await db.execute(
-                    """INSERT INTO trades
-                    (signal_id, cb_code, cb_name, buy_time, buy_price, buy_shares, buy_amount, status, trade_type)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)""",
-                    (signal_id, sig['cb_code'], sig['cb_name'],
-                     now, sig['target_buy_price'], sig['target_shares'], buy_amount,
-                     sig.get('trade_type', 'HEDGE'))
-                )
-                trade_id = cursor.lastrowid
-                executed_trades.append({
-                    'signal_id': signal_id,
-                    'trade_id': trade_id,
-                    **sig,
-                    'buy_amount': buy_amount,
-                })
+                for sig in signals:
+                    cursor = await db.execute(
+                        """INSERT INTO signals
+                        (scan_log_id, cb_code, cb_name, stock_code, stock_price, cb_price,
+                         conversion_price, conversion_value, premium_rate, discount_space,
+                         target_buy_price, target_shares, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')""",
+                        (scan_log_id, sig['cb_code'], sig['cb_name'], sig['stock_code'],
+                         sig['stock_price'], sig['cb_price'], sig['conversion_price'],
+                         sig['conversion_value'], sig['premium_rate'], sig['discount_space'],
+                         sig['target_buy_price'], sig['target_shares'])
+                    )
+                    signal_id = cursor.lastrowid
 
-                await db.execute(
-                    "UPDATE signals SET status = 'EXECUTED' WHERE id = ?",
-                    (signal_id,)
-                )
+                    buy_amount = sig['target_buy_price'] * 100 * sig['target_shares']
+                    cursor = await db.execute(
+                        """INSERT INTO trades
+                        (signal_id, cb_code, cb_name, buy_time, buy_price, buy_shares, buy_amount, status, trade_type)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)""",
+                        (signal_id, sig['cb_code'], sig['cb_name'],
+                         now, sig['target_buy_price'], sig['target_shares'], buy_amount,
+                         sig.get('trade_type', 'HEDGE'))
+                    )
+                    trade_id = cursor.lastrowid
+                    executed_trades.append({
+                        'signal_id': signal_id,
+                        'trade_id': trade_id,
+                        **sig,
+                        'buy_amount': buy_amount,
+                    })
 
-            await db.commit()
+                    await db.execute(
+                        "UPDATE signals SET status = 'EXECUTED' WHERE id = ?",
+                        (signal_id,)
+                    )
+
+                await db.commit()
+        except Exception as e:
+            log(f'数据库写入异常: {str(e)}', 'error')
 
         yield f"event: done\ndata: {json.dumps({'signals_found': len(signals), 'trades': executed_trades, 'message': f'扫描完成，发现 {len(signals)} 个信号' if signals else '无符合条件信号'}, ensure_ascii=False)}\n\n"
 
