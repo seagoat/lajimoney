@@ -136,15 +136,6 @@ function triggerScan() {
         currentEventSource = null;
     });
 
-    es.addEventListener('error', function(e) {
-        const data = JSON.parse(e.data || '{}');
-        log(data.message || '发生错误', 'error');
-        es.close();
-        currentEventSource = null;
-        btn.disabled = false;
-        btn.textContent = '手动触发扫描';
-    });
-
     es.onerror = function() {
         es.close();
         currentEventSource = null;
@@ -181,6 +172,17 @@ function triggerScan() {
             log('连接中断', 'error');
         }
     };
+
+    // 超时兜底：60秒后强制关闭stream
+    setTimeout(() => {
+        if (currentEventSource) {
+            log('扫描超时，强制结束', 'error');
+            es.close();
+            currentEventSource = null;
+            btn.disabled = false;
+            btn.textContent = '手动触发扫描';
+        }
+    }, 60000);
 }
 </script>
 {% endblock %}
