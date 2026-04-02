@@ -73,7 +73,7 @@ async def trigger_scan():
 
 async def _run_scan(scan_id: str, settings: dict):
     """
-    后台运行扫描，把进度和结果写入 _scan_results
+    后台运行扫描，每步结果直接追加到 _scan_results[scan_id]['steps']
     """
     discount_threshold = float(settings["discount_threshold"])
     target_lot_size = int(settings["target_lot_size"])
@@ -93,28 +93,13 @@ async def _run_scan(scan_id: str, settings: dict):
                     "done": True,
                 }
                 return
-            _scan_results[scan_id]["steps"].append({
-                "event": "start",
-                "status": "start",
-                "total": len(stock_codes),
-                "message": f"开始扫描 {len(stock_codes)} 只底仓正股...",
-            })
             gen = scan_portfolio_gen(stock_codes, discount_threshold, target_lot_size)
 
         signals = []
-        is_first = True
 
         try:
             async for step in gen:
-                if is_first and step['status'] not in ('error',):
-                    is_first = False
-                    _scan_results[scan_id]["steps"].append({
-                        "event": "start",
-                        **{k: v for k, v in step.items() if k in ('total', 'message')},
-                    })
-
-                step_data = {"event": "step", **step}
-                _scan_results[scan_id]["steps"].append(step_data)
+                _scan_results[scan_id]["steps"].append(step)
 
                 if step['status'] == 'signal_found':
                     if 'stock_price' not in step or 'cb_code' not in step:
@@ -139,7 +124,6 @@ async def _run_scan(scan_id: str, settings: dict):
                 "message": f"扫描过程异常: {str(e)}",
             })
 
-        # 写入数据库
         executed_trades = []
         try:
             now = datetime.now().isoformat()
@@ -153,7 +137,7 @@ async def _run_scan(scan_id: str, settings: dict):
 
                 for sig in signals:
                     cursor = await db.execute(
-                        """ INSERT INTO signals
+                        """INSERT INTO signals
                         (scan_log_id, cb_code, cb_name, stock_code, stock_price, cb_price,
                          conversion_price, conversion_value, premium_rate, discount_space,
                          target_buy_price, target_shares, status)
@@ -231,10 +215,9 @@ async def scan_stream():
 
     async def event_generator():
         import asyncio
-        # 启动后台扫描
         asyncio.create_task(_run_scan(scan_id, settings))
 
-        last_sent = 0  # 已发送的 steps 计数
+        last_sent = 0
 
         for _ in range(120):
             await asyncio.sleep(1)
@@ -247,7 +230,17 @@ async def scan_stream():
             last_sent = len(steps)
 
             for step in new_steps:
-                event_type = step.get('event', 'step')
+                # 根据 step['status'] 决定 SSE 事件类型
+                status = step.get('status', '')
+                if status == 'skip' or status == 'not_qualified':
+                    event_type = 'step'
+                elif status == 'signal_found':
+                    event_type = 'step'
+                elif status == 'scanning':
+                    event_type = 'start'  # 第一次 scanning = start 事件
+                else:
+                    event_type = 'step'
+
                 data = {k: v for k, v in step.items() if k != 'event'}
                 yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
