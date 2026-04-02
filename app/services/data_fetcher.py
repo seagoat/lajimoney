@@ -86,31 +86,41 @@ _cb_list_cache: list[dict] = []  # 全量转债列表 [{stock_code, cb_code, cb_
 
 
 def _load_cb_info() -> dict:
-    """从THS加载全部转债基础信息"""
-    try:
-        df = ak.bond_zh_cov_info_ths()
-        mapping = {}
-        cb_list = []
-        for _, row in df.iterrows():
-            stock_code = str(row["正股代码"]).strip()
-            if stock_code and stock_code != "nan":
-                cb_code = str(row["债券代码"]).strip()
-                mapping[stock_code] = {
-                    "cb_code": cb_code,
-                    "cb_name": str(row["债券简称"]).strip(),
-                    "conversion_price": float(row["转股价格"]),
-                }
-                cb_list.append({
-                    "stock_code": stock_code,
-                    "cb_code": cb_code,
-                    "cb_name": str(row["债券简称"]).strip(),
-                    "conversion_price": float(row["转股价格"]),
-                })
-        _cb_list_cache.clear()
-        _cb_list_cache.extend(cb_list)
-        return mapping
-    except Exception:
-        return {}
+    """从THS加载全部转债基础信息，带重试"""
+    import time
+    last_err = None
+    for attempt in range(3):
+        try:
+            df = ak.bond_zh_cov_info_ths()
+            if df is not None and len(df) > 0:
+                mapping = {}
+                cb_list = []
+                for _, row in df.iterrows():
+                    stock_code = str(row["正股代码"]).strip()
+                    if stock_code and stock_code != "nan":
+                        cb_code = str(row["债券代码"]).strip()
+                        mapping[stock_code] = {
+                            "cb_code": cb_code,
+                            "cb_name": str(row["债券简称"]).strip(),
+                            "conversion_price": float(row["转股价格"]),
+                        }
+                        cb_list.append({
+                            "stock_code": stock_code,
+                            "cb_code": cb_code,
+                            "cb_name": str(row["债券简称"]).strip(),
+                            "conversion_price": float(row["转股价格"]),
+                        })
+                _cb_list_cache.clear()
+                _cb_list_cache.extend(cb_list)
+                return mapping
+        except Exception as e:
+            last_err = e
+            if attempt < 2:
+                time.sleep(1)
+    # 全部重试失败
+    import logging
+    logging.getLogger(__name__).warning(f"THS load failed after 3 attempts: {last_err}")
+    return {}
 
 
 def get_cb_info_by_stock(stock_code: str) -> Optional[dict]:
