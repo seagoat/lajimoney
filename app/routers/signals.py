@@ -22,11 +22,12 @@ async def get_settings() -> dict:
         return {r['key']: r['value'] for r in rows}
 
 
-async def load_holdings() -> list[str]:
+async def load_holdings() -> dict[str, float]:
+    """返回 {stock_code: shares}"""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        cursor = await db.execute("SELECT stock_code FROM holdings")
-        return [r['stock_code'] for r in await cursor.fetchall()]
+        cursor = await db.execute("SELECT stock_code, shares FROM holdings")
+        return {r['stock_code']: r['shares'] for r in await cursor.fetchall()}
 
 
 def log_msg(message, _type='info'):
@@ -85,7 +86,8 @@ async def _run_scan(scan_id: str, settings: dict):
         if scan_mode == "all":
             gen = scan_all_cb_gen(discount_threshold, target_lot_size, settings)
         else:
-            stock_codes = await load_holdings()
+            holdings_shares = await load_holdings()
+            stock_codes = list(holdings_shares.keys())
             if not stock_codes:
                 _scan_results[scan_id] = {
                     "status": "error",
@@ -93,7 +95,7 @@ async def _run_scan(scan_id: str, settings: dict):
                     "done": True,
                 }
                 return
-            gen = scan_portfolio_gen(stock_codes, discount_threshold, target_lot_size)
+            gen = scan_portfolio_gen(stock_codes, discount_threshold, holdings_shares)
 
         signals = []
 
@@ -115,7 +117,7 @@ async def _run_scan(scan_id: str, settings: dict):
                         'premium_rate': step.get('premium_rate'),
                         'discount_space': step.get('discount_space'),
                         'target_buy_price': round(step['cb_price'], 2),
-                        'target_shares': target_lot_size,
+                        'target_shares': step.get('target_shares', target_lot_size),
                         'trade_type': step.get('trade_type', 'HEDGE'),
                     })
         except Exception as e:

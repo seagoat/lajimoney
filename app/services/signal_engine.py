@@ -96,12 +96,13 @@ def scan_portfolio(stock_codes: list[str], discount_threshold: float, target_lot
 
 # ---- 持仓模式异步扫描 ----
 
-async def scan_portfolio_gen(stock_codes: list[str], discount_threshold: float, target_lot_size: int):
+async def scan_portfolio_gen(stock_codes: list[str], discount_threshold: float, holdings_shares: dict[str, float]):
     """
     异步生成器，逐只正股产出最终状态（持仓模式）
     每只股票只 yield 一次最终状态
+    target_shares 按底仓股数换算：ceil(持有股数 × 转股价 ÷ 100 ÷ 10) × 10
     """
-    import asyncio
+    import asyncio, math
     from app.services.data_fetcher import get_stock_price, get_cb_info_by_stock_with_price
 
     for i, code in enumerate(stock_codes):
@@ -136,12 +137,20 @@ async def scan_portfolio_gen(stock_codes: list[str], discount_threshold: float, 
         discount_space = calculate_discount_space(conversion_value, cb_price)
 
         if premium_rate < discount_threshold:
+            # 按底仓股数换算所需CB张数：ceil(持有股数 × 转股价 ÷ 100 ÷ 10) × 10
+            held_shares = holdings_shares.get(code, 0)
+            if held_shares > 0 and conversion_price > 0:
+                raw_lots = held_shares * conversion_price / 100 / 10
+                target_shares_calc = math.ceil(raw_lots) * 10
+            else:
+                target_shares_calc = 10  # fallback 最低10张
+
             yield {
                 'step': i + 1,
                 'total': len(stock_codes),
                 'stock_code': code,
                 'status': 'signal_found',
-                'message': f'✅ 发现信号！{code} 正股:{price} → {cb_info["cb_code"]} 转债:{cb_price} 转股价值:{conversion_value:.2f} 折价:{discount_space:.2f} 溢价率:{premium_rate:.2f}%',
+                'message': f'✅ 发现信号！{code} 正股:{price} → {cb_info["cb_code"]} 转债:{cb_price} 转股价值:{conversion_value:.2f} 折价:{discount_space:.2f} 溢价率:{premium_rate:.2f}%（匹配底仓:{held_shares}股 → 买入{target_shares_calc}张）',
                 'cb_code': cb_info['cb_code'],
                 'cb_name': cb_info['cb_name'],
                 'stock_price': price,
@@ -150,6 +159,8 @@ async def scan_portfolio_gen(stock_codes: list[str], discount_threshold: float, 
                 'conversion_value': round(conversion_value, 4),
                 'premium_rate': round(premium_rate, 4),
                 'discount_space': round(discount_space, 4),
+                'target_shares': target_shares_calc,
+                'held_shares': held_shares,
             }
         else:
             yield {
