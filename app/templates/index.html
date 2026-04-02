@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="stat-grid">
+    <div class="stat-card">
+        <div class="stat-value {% if overview.total_profit >= 0 %}profit{% else %}loss{% endif %}">
+            {{ "%.2f"|format(overview.total_profit) }}
+        </div>
+        <div class="stat-label">累计收益（元）</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ "%.1f"|format(overview.win_rate) }}%</div>
+        <div class="stat-label">历史胜率</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ overview.total_trades }}</div>
+        <div class="stat-label">总成交笔数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ overview.pending_count }}</div>
+        <div class="stat-label">当前持仓</div>
+    </div>
+</div>
+
+<div class="card" style="margin-top: 20px;">
+    <h2>今日信号</h2>
+    {% if overview.today_signals > 0 %}
+    <p>今日发现 <strong>{{ overview.today_signals }}</strong> 个套利信号</p>
+    {% else %}
+    <p>今日暂无信号</p>
+    {% endif %}
+    <button class="btn btn-primary" onclick="triggerScan()"
+            style="margin-top: 10px;">手动触发扫描</button>
+</div>
+
+<div class="card">
+    <h2>快速操作</h2>
+    <p><a href="/holdings">管理底仓</a> | <a href="/signals">查看信号</a> | <a href="/trades">成交记录</a></p>
+</div>
+
+<script>
+async function triggerScan() {
+    if (!confirm('确定要触发一次扫描吗？')) return;
+    const res = await fetch('/api/signals/scan', { method: 'POST' });
+    const data = await res.json();
+    if (data.status === 'success') {
+        alert(`扫描完成，发现 ${data.signals_found} 个信号`);
+        location.reload();
+    } else {
+        alert('扫描失败: ' + data.status);
+    }
+}
+</script>
+{% endblock %}

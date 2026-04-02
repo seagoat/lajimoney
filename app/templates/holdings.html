@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>底仓管理</h1>
+
+<div class="card">
+    <h2>添加底仓</h2>
+    <form id="addForm">
+        <div class="form-group">
+            <label>正股代码</label>
+            <input type="text" name="stock_code" placeholder="如 000001" required>
+        </div>
+        <div class="form-group">
+            <label>正股名称</label>
+            <input type="text" name="stock_name" placeholder="如 平安银行" required>
+        </div>
+        <div class="form-group">
+            <label>持股数量</label>
+            <input type="number" name="shares" step="0.01" required>
+        </div>
+        <div class="form-group">
+            <label>成本价</label>
+            <input type="number" name="cost_price" step="0.001" required>
+        </div>
+        <button type="submit" class="btn btn-primary">添加</button>
+    </form>
+</div>
+
+<div class="card">
+    <h2>当前底仓</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>代码</th>
+                <th>名称</th>
+                <th>数量</th>
+                <th>成本价</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody id="holdingsBody">
+            <tr><td colspan="5">加载中...</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<script>
+async function loadHoldings() {
+    const res = await fetch('/api/holdings');
+    const data = await res.json();
+    const tbody = document.getElementById('holdingsBody');
+    if (data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5">暂无底仓</td></tr>';
+        return;
+    }
+    tbody.innerHTML = data.map(h => `
+        <tr>
+            <td>${h.stock_code}</td>
+            <td>${h.stock_name}</td>
+            <td>${h.shares}</td>
+            <td>${h.cost_price}</td>
+            <td>
+                <button class="btn btn-danger" onclick="deleteHolding(${h.id})">删除</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+document.getElementById('addForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const form = new FormData(e.target);
+    const body = Object.fromEntries(form.entries());
+    await fetch('/api/holdings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+    });
+    e.target.reset();
+    loadHoldings();
+};
+
+async function deleteHolding(id) {
+    if (!confirm('确认删除？')) return;
+    await fetch(`/api/holdings/${id}`, { method: 'DELETE' });
+    loadHoldings();
+}
+
+loadHoldings();
+</script>
+{% endblock %}

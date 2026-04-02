@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>套利信号记录</h1>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>时间</th>
+                <th>转债代码</th>
+                <th>转债名称</th>
+                <th>正股代码</th>
+                <th>溢价率</th>
+                <th>折价空间</th>
+                <th>目标买入价</th>
+                <th>张数</th>
+                <th>状态</th>
+            </tr>
+        </thead>
+        <tbody id="signalsBody">
+            <tr><td colspan="9">加载中...</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<script>
+async function loadSignals() {
+    const res = await fetch('/api/signals?limit=100');
+    const data = await res.json();
+    const tbody = document.getElementById('signalsBody');
+    if (data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9">暂无信号</td></tr>';
+        return;
+    }
+    tbody.innerHTML = data.map(s => {
+        const premium = s.premium_rate != null ? s.premium_rate.toFixed(2) + '%' : '-';
+        const discount = s.discount_space != null ? s.discount_space.toFixed(2) : '-';
+        const statusColor = s.status === 'EXECUTED' ? 'profit' :
+                            s.status === 'PENDING' ? '' : 'loss';
+        return `<tr>
+            <td>${s.signal_time ? s.signal_time.slice(0, 19) : '-'}</td>
+            <td>${s.cb_code || '-'}</td>
+            <td>${s.cb_name || '-'}</td>
+            <td>${s.stock_code}</td>
+            <td class="${s.premium_rate < 0 ? 'profit' : 'loss'}">${premium}</td>
+            <td>${discount}</td>
+            <td>${s.target_buy_price || '-'}</td>
+            <td>${s.target_shares || '-'}</td>
+            <td class="${statusColor}">${s.status}</td>
+        </tr>`;
+    }).join('');
+}
+loadSignals();
+</script>
+{% endblock %}
