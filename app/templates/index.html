@@ -23,14 +23,17 @@
 </div>
 
 <div class="card" style="margin-top: 20px;">
-    <h2>今日信号</h2>
-    {% if overview.today_signals > 0 %}
-    <p>今日发现 <strong>{{ overview.today_signals }}</strong> 个套利信号</p>
-    {% else %}
-    <p>今日暂无信号</p>
-    {% endif %}
+    <h2>扫描监控</h2>
     <button id="scanBtn" class="btn btn-primary" onclick="triggerScan()"
-            style="margin-top: 10px;">手动触发扫描</button>
+            style="margin-top: 5px;">手动触发扫描</button>
+    <div id="scanProgress" style="margin-top: 15px; display: none;">
+        <div id="scanStatus" style="margin-bottom: 8px; color: #555; font-size: 14px;"></div>
+        <div id="progressBar" style="height: 6px; background: #eee; border-radius: 3px;">
+            <div id="progressFill" style="height: 100%; background: #3498db; border-radius: 3px; width: 0%; transition: width 0.3s;"></div>
+        </div>
+        <div id="logContainer" style="margin-top: 12px; max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 13px;">
+        </div>
+    </div>
     <div id="scanResult" style="margin-top: 15px; display: none;"></div>
 </div>
 
@@ -40,23 +43,103 @@
 </div>
 
 <script>
-async function triggerScan() {
+let currentEventSource = null;
+
+function log(message, type) {
+    const container = document.getElementById('logContainer');
+    const line = document.createElement('div');
+    line.style.padding = '3px 0';
+    line.style.borderBottom = '1px solid #f0f0f0';
+    if (type === 'error') {
+        line.style.color = '#e74c3c';
+    } else if (type === 'success') {
+        line.style.color = '#27ae60';
+    } else if (type === 'signal') {
+        line.style.color = '#27ae60';
+        line.style.fontWeight = 'bold';
+    } else {
+        line.style.color = '#777';
+    }
+    const time = new Date().toLocaleTimeString('zh-CN');
+    line.textContent = `[${time}] ${message}`;
+    container.appendChild(line);
+    container.scrollTop = container.scrollHeight;
+}
+
+function triggerScan() {
+    if (currentEventSource) {
+        currentEventSource.close();
+    }
     if (!confirm('确定要触发一次扫描吗？')) return;
+
     const btn = document.getElementById('scanBtn');
+    const progressDiv = document.getElementById('scanProgress');
     const resultDiv = document.getElementById('scanResult');
+    const statusDiv = document.getElementById('scanStatus');
+    const progressFill = document.getElementById('progressFill');
+    const logContainer = document.getElementById('logContainer');
+
     btn.disabled = true;
     btn.textContent = '扫描中...';
+    progressDiv.style.display = 'block';
     resultDiv.style.display = 'none';
+    logContainer.innerHTML = '';
+    statusDiv.textContent = '正在连接...';
+    progressFill.style.width = '0%';
 
-    try {
-        const res = await fetch('/api/signals/scan', { method: 'POST' });
-        const data = await res.json();
-        resultDiv.style.display = 'block';
-        if (data.status === 'success') {
-            if (data.signals_found > 0) {
-                let html = `<p class="profit">扫描完成，发现 <strong>${data.signals_found}</strong> 个信号，已模拟买入：</p>`;
+    const es = new EventSource('/api/signals/scan-stream');
+    currentEventSource = es;
+    let finalResult = null;
+
+    es.addEventListener('start', function(e) {
+        const data = JSON.parse(e.data);
+        statusDiv.textContent = data.message;
+        log(data.message);
+    });
+
+    es.addEventListener('step', function(e) {
+        const step = JSON.parse(e.data);
+        log(step.message);
+
+        if (step.status === 'signal_found') {
+            log(`  → 已加入买入计划：买${step.cb_name} ${step.target_shares || 10}张 @ ${step.cb_price}`, 'signal');
+        }
+
+        const pct = Math.round((step.step / step.total) * 100);
+        progressFill.style.width = pct + '%';
+        statusDiv.textContent = `正在扫描 ${step.step}/${step.total}：${step.stock_code}`;
+    });
+
+    es.addEventListener('done', function(e) {
+        const data = JSON.parse(e.data);
+        finalResult = data;
+        progressFill.style.width = '100%';
+        es.close();
+        currentEventSource = null;
+    });
+
+    es.addEventListener('error', function(e) {
+        const data = JSON.parse(e.data || '{}');
+        log(data.message || '发生错误', 'error');
+        es.close();
+        currentEventSource = null;
+        btn.disabled = false;
+        btn.textContent = '手动触发扫描';
+    });
+
+    es.onerror = function() {
+        es.close();
+        currentEventSource = null;
+        if (finalResult) {
+            btn.disabled = false;
+            btn.textContent = '手动触发扫描';
+
+            const resultDiv2 = document.getElementById('scanResult');
+            resultDiv2.style.display = 'block';
+            if (finalResult.signals_found > 0) {
+                let html = `<p class="profit"><strong>扫描完成，发现 ${finalResult.signals_found} 个信号，已模拟买入：</strong></p>`;
                 html += '<table style="margin-top:10px;width:100%"><thead><tr><th>转债</th><th>买价</th><th>张数</th><th>溢价率</th><th>折价空间</th></tr></thead><tbody>';
-                for (const t of data.trades) {
+                for (const t of finalResult.trades) {
                     html += `<tr>
                         <td>${t.cb_name} (${t.cb_code})</td>
                         <td>${t.buy_price}</td>
@@ -66,22 +149,16 @@ async function triggerScan() {
                     </tr>`;
                 }
                 html += '</tbody></table>';
-                resultDiv.innerHTML = html;
+                resultDiv2.innerHTML = html;
             } else {
-                resultDiv.innerHTML = '<p>扫描完成，今日无符合条件信号（折价率需 < -1%）</p>';
+                resultDiv2.innerHTML = '<p>扫描完成，今日无符合条件信号（折价率需 &lt; -1%）</p>';
             }
-        } else if (data.status === 'no_holdings') {
-            resultDiv.innerHTML = '<p class="loss">扫描失败：底仓为空，请先在「底仓管理」添加正股</p>';
         } else {
-            resultDiv.innerHTML = `<p class="loss">扫描失败：${data.status}</p>`;
+            btn.disabled = false;
+            btn.textContent = '手动触发扫描';
+            log('连接中断', 'error');
         }
-    } catch (e) {
-        resultDiv.style.display = 'block';
-        resultDiv.innerHTML = `<p class="loss">扫描异常：${e.message}</p>`;
-    } finally {
-        btn.disabled = false;
-        btn.textContent = '手动触发扫描';
-    }
+    };
 }
 </script>
 {% endblock %}
