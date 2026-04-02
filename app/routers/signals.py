@@ -94,6 +94,7 @@ async def _run_scan(scan_id: str, settings: dict):
                 }
                 return
             _scan_results[scan_id]["steps"].append({
+                "event": "start",
                 "status": "start",
                 "total": len(stock_codes),
                 "message": f"开始扫描 {len(stock_codes)} 只底仓正股...",
@@ -223,30 +224,40 @@ async def get_scan_settings():
 @router.get("/scan-stream")
 async def scan_stream():
     """
-    流式扫描接口（SSE），已改为轮询模式兼容
-    先尝试流式，fallback 到轮询
+    SSE 流式扫描：后台运行，前端每秒轮询新步骤
     """
     scan_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
     settings = await get_settings()
 
     async def event_generator():
-        # 启动后台扫描
         import asyncio
+        # 启动后台扫描
         asyncio.create_task(_run_scan(scan_id, settings))
 
-        # 等待最多 120 秒，每秒检查一次 _scan_results
+        last_sent = 0  # 已发送的 steps 计数
+
         for _ in range(120):
             await asyncio.sleep(1)
             result = _scan_results.get(scan_id)
-            if result:
-                for step in result.get("steps", []):
-                    yield f"event: {step.get('event', 'step')}\ndata: {json.dumps({k: v for k, v in step.items() if k != 'event'}, ensure_ascii=False)}\n\n"
-                    if step.get('event') == 'error':
-                        yield f"event: done\ndata: {json.dumps({'signals_found': 0, 'trades': [], 'message': step.get('message', '发生错误')}, ensure_ascii=False)}\n\n"
-                        return
-                if result.get("done"):
-                    yield f"event: done\ndata: {json.dumps({'signals_found': result.get('signals_found', 0), 'trades': result.get('trades', []), 'message': result.get('message', '')}, ensure_ascii=False)}\n\n"
+            if not result:
+                continue
+
+            steps = result.get("steps", [])
+            new_steps = steps[last_sent:]
+            last_sent = len(steps)
+
+            for step in new_steps:
+                event_type = step.get('event', 'step')
+                data = {k: v for k, v in step.items() if k != 'event'}
+                yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+                if event_type == 'error':
                     return
+
+            if result.get("done"):
+                yield f"event: done\ndata: {json.dumps({'signals_found': result.get('signals_found', 0), 'trades': result.get('trades', []), 'message': result.get('message', '')}, ensure_ascii=False)}\n\n"
+                return
+
         yield f"event: done\ndata: {json.dumps({'signals_found': 0, 'trades': [], 'message': '扫描超时'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
