@@ -91,9 +91,19 @@ class SettingsResponse(BaseModel):
     discount_threshold: float
     target_lot_size: int
     scan_mode: str  # 'holdings' | 'all'
+    stock_broker_fee: float
+    stock_stamp_tax: float
+    cb_broker_fee: float
+    naked_discount_threshold: float
+    naked_enabled: bool
 
 
 class SettingsUpdate(BaseModel):
     discount_threshold: Optional[float] = None
     target_lot_size: Optional[int] = None
     scan_mode: Optional[str] = None
+    stock_broker_fee: Optional[float] = None
+    stock_stamp_tax: Optional[float] = None
+    cb_broker_fee: Optional[float] = None
+    naked_discount_threshold: Optional[float] = None
+    naked_enabled: Optional[bool] = None
