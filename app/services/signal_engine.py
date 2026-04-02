@@ -90,18 +90,12 @@ async def scan_portfolio_gen(stock_codes: list[str]):
             yield step
             continue
 
-        step.update({
-            'status': 'price_ok',
-            'message': f'{code} 正股价格: {price}，正在查询转债...',
-            'stock_price': price,
-        })
-        yield step
-
         cb_info = await asyncio.to_thread(get_cb_info_by_stock_with_price, code)
         if cb_info is None:
             step.update({
                 'status': 'skip',
-                'message': f'{code}：无对应转债或无法获取转债价格，跳过',
+                'message': f'{code} 正股:{price} → 无对应转债或无法获取转债价格，跳过',
+                'stock_price': price,
             })
             yield step
             continue
@@ -115,7 +109,7 @@ async def scan_portfolio_gen(stock_codes: list[str]):
         if premium_rate < DISCOUNT_THRESHOLD:
             step.update({
                 'status': 'signal_found',
-                'message': f'✅ 发现信号！{code} → {cb_info["cb_code"]} 溢价率 {premium_rate:.2f}% 折价空间 {discount_space:.2f}',
+                'message': f'✅ 发现信号！{code} 正股:{price} → {cb_info["cb_code"]} 转债:{cb_price} 转股价值:{conversion_value:.2f} 折价:{discount_space:.2f} 溢价率:{premium_rate:.2f}%',
                 'cb_code': cb_info['cb_code'],
                 'cb_name': cb_info['cb_name'],
                 'cb_price': cb_price,
@@ -127,7 +121,7 @@ async def scan_portfolio_gen(stock_codes: list[str]):
         else:
             step.update({
                 'status': 'not_qualified',
-                'message': f'{code} → {cb_info["cb_code"]} 溢价率 {premium_rate:.2f}%（需<{DISCOUNT_THRESHOLD}%），不满足条件',
+                'message': f'{code} 正股:{price} → {cb_info["cb_code"]} 转债:{cb_price} 转股价:{conversion_price} 溢价率:{premium_rate:.2f}%（需<{DISCOUNT_THRESHOLD}%）',
                 'cb_code': cb_info['cb_code'],
                 'cb_name': cb_info['cb_name'],
                 'cb_price': cb_price,
