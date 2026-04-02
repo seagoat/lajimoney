@@ -18,6 +18,11 @@ async def get_settings():
             "discount_threshold": float(settings.get("discount_threshold", "-1.0")),
             "target_lot_size": int(settings.get("target_lot_size", "10")),
             "scan_mode": settings.get("scan_mode", "holdings"),
+            "stock_broker_fee": float(settings.get("stock_broker_fee", "0.0001")),
+            "stock_stamp_tax": float(settings.get("stock_stamp_tax", "0.0015")),
+            "cb_broker_fee": float(settings.get("cb_broker_fee", "0.00006")),
+            "naked_discount_threshold": float(settings.get("naked_discount_threshold", "-2.0")),
+            "naked_enabled": settings.get("naked_enabled", "true") == "true",
         }
 
 
@@ -41,6 +46,31 @@ async def update_settings(update: SettingsUpdate):
             await db.execute(
                 "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
                 ("scan_mode", update.scan_mode, now)
+            )
+        if update.stock_broker_fee is not None:
+            await db.execute(
+                "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+                ("stock_broker_fee", str(update.stock_broker_fee), now)
+            )
+        if update.stock_stamp_tax is not None:
+            await db.execute(
+                "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+                ("stock_stamp_tax", str(update.stock_stamp_tax), now)
+            )
+        if update.cb_broker_fee is not None:
+            await db.execute(
+                "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+                ("cb_broker_fee", str(update.cb_broker_fee), now)
+            )
+        if update.naked_discount_threshold is not None:
+            await db.execute(
+                "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+                ("naked_discount_threshold", str(update.naked_discount_threshold), now)
+            )
+        if update.naked_enabled is not None:
+            await db.execute(
+                "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+                ("naked_enabled", "true" if update.naked_enabled else "false", now)
             )
         await db.commit()
     return await get_settings()
