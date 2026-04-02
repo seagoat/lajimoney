@@ -151,14 +151,38 @@ async def _run_scan(scan_id: str, settings: dict):
                     )
                     signal_id = cursor.lastrowid
 
-                    buy_amount = sig['target_buy_price'] * 100 * sig['target_shares']
+                    buy_price = sig['target_buy_price']
+                    buy_shares = sig['target_shares']
+                    trade_type = sig.get('trade_type', 'HEDGE')
+                    stock_price = sig['stock_price']
+                    conversion_price = sig.get('conversion_price') or 0
+
+                    # 计算交易费用
+                    buy_amount = buy_price * 100 * buy_shares
+                    cb_buy_fee = buy_amount * float(settings.get('cb_broker_fee', '0.00006'))
+                    stock_broker_fee = float(settings.get('stock_broker_fee', '0.0001'))
+                    stock_stamp_tax = float(settings.get('stock_stamp_tax', '0.0015'))
+
+                    if trade_type == 'NAKED':
+                        # 裸套：CB买入佣金 + 股票卖出佣金
+                        shares_from_cb = (100.0 / conversion_price) * buy_shares if conversion_price > 0 else 0
+                        sell_amount_est = stock_price * shares_from_cb  # 估算卖出入账
+                        stock_sell_fee = sell_amount_est * stock_broker_fee
+                        total_fees = cb_buy_fee + stock_sell_fee
+                    else:
+                        # 持仓对冲：CB双边佣金 + 印花税 + 股票卖出佣金
+                        cb_sell_fee_est = buy_amount * float(settings.get('cb_broker_fee', '0.00006'))
+                        stock_sell_fee_est = buy_amount * stock_broker_fee
+                        stamp_tax_est = buy_amount * stock_stamp_tax
+                        total_fees = cb_buy_fee + cb_sell_fee_est + stock_sell_fee_est + stamp_tax_est
+
                     cursor = await db.execute(
                         """INSERT INTO trades
                         (signal_id, cb_code, cb_name, buy_time, buy_price, buy_shares, buy_amount, status, trade_type)
                         VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)""",
                         (signal_id, sig['cb_code'], sig['cb_name'],
-                         now, sig['target_buy_price'], sig['target_shares'], buy_amount,
-                         sig.get('trade_type', 'HEDGE'))
+                         now, buy_price, buy_shares, buy_amount,
+                         trade_type)
                     )
                     trade_id = cursor.lastrowid
                     executed_trades.append({
@@ -167,16 +191,18 @@ async def _run_scan(scan_id: str, settings: dict):
                         'cb_code': sig['cb_code'],
                         'cb_name': sig['cb_name'],
                         'stock_code': sig['stock_code'],
-                        'stock_price': sig['stock_price'],
+                        'stock_price': stock_price,
                         'cb_price': sig['cb_price'],
-                        'conversion_price': sig.get('conversion_price'),
+                        'conversion_price': conversion_price,
                         'conversion_value': sig.get('conversion_value'),
                         'premium_rate': sig.get('premium_rate'),
                         'discount_space': sig.get('discount_space'),
-                        'buy_price': sig['target_buy_price'],
-                        'buy_shares': sig['target_shares'],
-                        'trade_type': sig.get('trade_type', 'HEDGE'),
+                        'buy_price': buy_price,
+                        'buy_shares': buy_shares,
+                        'trade_type': trade_type,
                         'buy_amount': buy_amount,
+                        'total_fees': round(total_fees, 2),
+                        'cb_buy_fee': round(cb_buy_fee, 2),
                     })
 
                     await db.execute(
