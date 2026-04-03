@@ -8,11 +8,11 @@
     <form id="addForm">
         <div class="form-group">
             <label>正股代码</label>
-            <input type="text" name="stock_code" placeholder="如 000001" required>
+            <input type="text" id="stock_code" name="stock_code" placeholder="如 000001" required>
         </div>
         <div class="form-group">
             <label>正股名称</label>
-            <input type="text" name="stock_name" placeholder="如 平安银行" required>
+            <input type="text" id="stock_name" name="stock_name" placeholder="如 平安银行" required>
         </div>
         <div class="form-group">
             <label>持股数量</label>
@@ -27,43 +27,140 @@
 </div>
 
 <div class="card">
-    <h2>当前底仓</h2>
-    <table>
+    <h2>当前底仓 <button class="btn btn-danger btn-sm" onclick="deleteAllHoldings()" style="margin-left:10px;">全部删除</button></h2>
+    <table id="holdingsTable">
         <thead>
             <tr>
-                <th>代码</th>
-                <th>名称</th>
-                <th>数量</th>
-                <th>成本价</th>
+                <th data-sort="code">代码</th>
+                <th data-sort="name">名称</th>
+                <th data-sort="shares">持股数</th>
+                <th data-sort="cost">成本价</th>
+                <th data-sort="cb_code">转债代码</th>
+                <th data-sort="cb_name">转债名称</th>
+                <th data-sort="cb_price">转债价</th>
+                <th data-sort="stock_price">正股价</th>
+                <th data-sort="premium">溢价率</th>
+                <th data-sort="discount">折价空间</th>
                 <th>操作</th>
             </tr>
         </thead>
         <tbody id="holdingsBody">
-            <tr><td colspan="5">加载中...</td></tr>
+            <tr><td colspan="11">加载中...</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<div class="card" style="margin-top: 20px;">
+    <h2>融券持仓 <button class="btn btn-danger btn-sm" onclick="closeAllPositions()" style="margin-left:10px;">全部平仓</button></h2>
+    <table id="loanPositionsTable">
+        <thead>
+            <tr>
+                <th data-sort="code">股票代码</th>
+                <th data-sort="name">名称</th>
+                <th data-sort="shares">融券数量</th>
+                <th data-sort="price">融券价格</th>
+                <th data-sort="amount">融券总额</th>
+                <th data-sort="interest">利息</th>
+                <th data-sort="status">状态</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody id="loanPositionsBody">
+            <tr><td colspan="8">加载中...</td></tr>
         </tbody>
     </table>
 </div>
 
 <script>
+let sortState = { holdingsTable: { column: 'code', direction: 'asc' }, loanPositionsTable: { column: 'code', direction: 'asc' } };
+
+function makeSortable(tableId, defaultCol, defaultDir) {
+    sortState[tableId] = { column: defaultCol, direction: defaultDir };
+    const headers = document.querySelectorAll(`#${tableId} th[data-sort]`);
+    headers.forEach(th => {
+        th.style.cursor = 'pointer';
+        th.title = '点击排序';
+        th.addEventListener('click', () => {
+            const col = th.dataset.sort;
+            if (sortState[tableId].column === col) {
+                sortState[tableId].direction = sortState[tableId].direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortState[tableId] = { column: col, direction: 'asc' };
+            }
+            sortTable(tableId, col, sortState[tableId].direction);
+        });
+        if (!th.querySelector('.sort-indicator')) {
+            th.innerHTML += ' <span class="sort-indicator" style="font-size:10px;color:#ccc;"></span>';
+        }
+    });
+    const defaultHeader = document.querySelector(`#${tableId} th[data-sort="${defaultCol}"] .sort-indicator`);
+    if (defaultHeader) defaultHeader.textContent = defaultDir === 'asc' ? ' ▲' : ' ▼';
+}
+
+function sortTable(tableId, col, direction) {
+    const tbody = document.querySelector(`#${tableId} tbody`);
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const colIndex = Array.from(document.querySelectorAll(`#${tableId} th[data-sort]`)).findIndex(th => th.dataset.sort === col);
+
+    rows.sort((a, b) => {
+        let aVal = a.cells[colIndex]?.textContent.trim() || '';
+        let bVal = b.cells[colIndex]?.textContent.trim() || '';
+        const aNum = parseFloat(aVal.replace(/[^\d.-]/g, ''));
+        const bNum = parseFloat(bVal.replace(/[^\d.-]/g, ''));
+        if (!isNaN(aNum) && !isNaN(bNum)) {
+            return direction === 'asc' ? aNum - bNum : bNum - aNum;
+        }
+        return direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+    });
+
+    rows.forEach(row => tbody.appendChild(row));
+    document.querySelectorAll(`#${tableId} th .sort-indicator`).forEach(el => el.textContent = '');
+    const activeHeader = document.querySelector(`#${tableId} th[data-sort="${col}"] .sort-indicator`);
+    if (activeHeader) activeHeader.textContent = direction === 'asc' ? ' ▲' : ' ▼';
+}
+
 async function loadHoldings() {
     const res = await fetch('/api/holdings');
-    const data = await res.json();
+    const holdings = await res.json();
     const tbody = document.getElementById('holdingsBody');
-    if (data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5">暂无底仓</td></tr>';
+
+    if (holdings.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="11">暂无底仓</td></tr>';
         return;
     }
-    tbody.innerHTML = data.map(h => `
+
+    // 并行查询每只正股的转债信息
+    const codes = holdings.map(h => h.stock_code).join(',');
+    const lookupRes = await fetch(`/api/holdings/lookup-batch?codes=${codes}`);
+    const lookupData = await lookupRes.json();
+    const lookupMap = {};
+    for (const item of lookupData) {
+        lookupMap[item.stock_code] = item;
+    }
+
+    tbody.innerHTML = holdings.map(h => {
+        const info = lookupMap[h.stock_code] || {};
+        const cb = info.cb || {};
+        const premiumColor = cb.premium_rate < 0 ? 'profit' : (cb.premium_rate > 0 ? 'loss' : '');
+        const discountSpace = cb.discount_space != null ? cb.discount_space.toFixed(2) : '—';
+        return `
         <tr>
             <td>${h.stock_code}</td>
             <td>${h.stock_name}</td>
             <td>${h.shares}</td>
             <td>${h.cost_price}</td>
+            <td>${cb.cb_code || '—'}</td>
+            <td>${cb.cb_name || '—'}</td>
+            <td>${cb.cb_price != null ? cb.cb_price : '—'}</td>
+            <td>${info.stock_price != null ? info.stock_price : '—'}</td>
+            <td class="${premiumColor}">${cb.premium_rate != null ? cb.premium_rate.toFixed(2) + '%' : '—'}</td>
+            <td class="${cb.discount_space > 0 ? 'profit' : ''}">${discountSpace}</td>
             <td>
                 <button class="btn btn-danger" onclick="deleteHolding(${h.id})">删除</button>
             </td>
         </tr>
-    `).join('');
+    `}).join('');
+    setTimeout(() => makeSortable('holdingsTable', 'code', 'asc'), 0);
 }
 
 document.getElementById('addForm').onsubmit = async (e) => {
@@ -85,6 +182,72 @@ async function deleteHolding(id) {
     loadHoldings();
 }
 
+async function deleteAllHoldings() {
+    if (!confirm('确认删除全部底仓？')) return;
+    await fetch(`/api/holdings`, { method: 'DELETE' });
+    loadHoldings();
+}
+
+// 自动填充股票名称
+const codeInput = document.getElementById('stock_code');
+const nameInput = document.getElementById('stock_name');
+
+function autoFillName() {
+    const code = codeInput.value.trim();
+    if (!code || code.length < 6) return;
+    fetch(`/api/holdings/lookup?code=${code}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.found && data.stock_name) {
+                nameInput.value = data.stock_name;
+            }
+        })
+        .catch(() => {});
+}
+
+codeInput.addEventListener('blur', autoFillName);
+codeInput.addEventListener('change', autoFillName);
+
 loadHoldings();
+
+// 融券持仓
+async function loadLoanPositions() {
+    const res = await fetch('/api/margin/positions');
+    const data = await res.json();
+    const tbody = document.getElementById('loanPositionsBody');
+    if (data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8">暂无融券持仓</td></tr>';
+        return;
+    }
+    tbody.innerHTML = data.map(p => `
+        <tr>
+            <td>${p.stock_code}</td>
+            <td>${p.stock_name || '-'}</td>
+            <td>${p.shares}</td>
+            <td>${p.loan_price}</td>
+            <td>${p.loan_amount != null ? p.loan_amount.toFixed(2) : '-'}</td>
+            <td>${p.interest_fee > 0 ? p.interest_fee.toFixed(2) : '-'}</td>
+            <td class="${p.status === 'ACTIVE' ? 'loss' : 'profit'}">${p.status === 'ACTIVE' ? '持仓中' : '已平仓'}</td>
+            <td>
+                ${p.status === 'ACTIVE' ? `<button class="btn btn-danger btn-sm" onclick="closePosition(${p.id})">平仓</button>` : '-'}
+            </td>
+        </tr>
+    `).join('');
+    setTimeout(() => makeSortable('loanPositionsTable', 'code', 'asc'), 0);
+}
+
+async function closePosition(id) {
+    if (!confirm('确认平仓？')) return;
+    await fetch(`/api/margin/${id}`, { method: 'DELETE' });
+    loadLoanPositions();
+}
+
+async function closeAllPositions() {
+    if (!confirm('确认全部平仓？')) return;
+    await fetch(`/api/margin/positions/all`, { method: 'DELETE' });
+    loadLoanPositions();
+}
+
+loadLoanPositions();
 </script>
 {% endblock %}

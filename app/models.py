@@ -96,6 +96,9 @@ class SettingsResponse(BaseModel):
     cb_broker_fee: float
     naked_discount_threshold: float
     naked_enabled: bool
+    short_enabled: bool
+    short_max_fund: float  # 融券模式单次最大资金（元）
+    naked_max_fund: float  # 裸套模式单次最大资金（元）
 
 
 class SettingsUpdate(BaseModel):
@@ -107,3 +110,45 @@ class SettingsUpdate(BaseModel):
     cb_broker_fee: Optional[float] = None
     naked_discount_threshold: Optional[float] = None
     naked_enabled: Optional[bool] = None
+    short_enabled: Optional[bool] = None
+    short_max_fund: Optional[float] = None
+    naked_max_fund: Optional[float] = None
+
+
+# === 融券设置模型 ===
+
+class MarginSettingsResponse(BaseModel):
+    id: int
+    broker_name: str
+    margin_ratio: float
+    daily_interest_rate: float
+    force_liquidation_ratio: float
+
+
+class MarginSettingsUpdate(BaseModel):
+    broker_name: Optional[str] = None
+    margin_ratio: Optional[float] = None
+    daily_interest_rate: Optional[float] = None
+    force_liquidation_ratio: Optional[float] = None
+
+
+# === 融券仓位模型 ===
+
+class LoanPositionResponse(BaseModel):
+    id: int
+    trade_id: int
+    stock_code: str
+    stock_name: Optional[str]
+    shares: int
+    loan_price: float
+    loan_amount: float
+    loan_time: str
+    cover_time: Optional[str]
+    cover_price: Optional[float]
+    cover_amount: Optional[float]
+    interest_days: int
+    interest_rate: float
+    interest_fee: float
+    status: str
+    created_at: str
+    updated_at: str

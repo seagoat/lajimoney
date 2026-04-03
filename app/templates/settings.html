@@ -4,8 +4,8 @@
 <h1>扫描设置</h1>
 
 <div class="card">
-    <h2>扫描参数</h2>
     <form id="settingsForm">
+        <h2>扫描参数</h2>
         <div class="form-group">
             <label>折价率阈值（%）</label>
             <input type="number" name="discount_threshold" id="discount_threshold"
@@ -35,8 +35,6 @@
                 全市场：扫描所有可转债（耗时长，约3-5分钟）
             </small>
         </div>
-
-        <button type="submit" class="btn btn-primary">保存设置</button>
 
         <div class="card" style="margin-top: 20px;">
             <h2>交易成本设置</h2>
@@ -69,7 +67,28 @@
         </div>
 
         <div class="card" style="margin-top: 20px;">
-            <h2>裸套模式（无底仓）</h2>
+            <h2>套利资金上限</h2>
+            <div class="form-group">
+                <label>融券模式单次最大资金（元）</label>
+                <input type="number" name="short_max_fund" id="short_max_fund"
+                       step="1000" min="0" placeholder="默认 100000">
+                <small style="color:#888;display:block;margin-top:4px;">
+                    融券对冲模式下，单次操作投入的最大资金量，默认10万元
+                </small>
+            </div>
+
+            <div class="form-group">
+                <label>裸套模式单次最大资金（元）</label>
+                <input type="number" name="naked_max_fund" id="naked_max_fund"
+                       step="1000" min="0" placeholder="默认 100000">
+                <small style="color:#888;display:block;margin-top:4px;">
+                    裸套模式下，单次操作投入的最大资金量，默认10万元
+                </small>
+            </div>
+        </div>
+
+        <div class="card" style="margin-top: 20px;">
+            <h2>无底仓套利模式</h2>
             <div class="form-group">
                 <label>
                     <input type="checkbox" name="naked_enabled" id="naked_enabled"
@@ -89,9 +108,56 @@
                     裸套模式只买溢价率低于此值的转债（如 -2.0 表示溢价率 &lt; -2% 才触发）
                 </small>
             </div>
+
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" name="short_enabled" id="short_enabled"
+                           style="width: auto; margin-right: 8px;">
+                    启用融券对冲模式（无底仓时优先于裸套）
+                </label>
+                <small style="color:#888;display:block;margin-top:4px;">
+                    优先于裸套。融券卖出正股 + 买入CB转股归还，可消除隔夜风险
+                </small>
+            </div>
         </div>
 
-        <button type="submit" class="btn btn-primary" style="margin-top: 15px;">保存设置</button>
+        <div class="card" style="margin-top: 20px;">
+            <h2>券商保证金设置</h2>
+            <div class="form-group">
+                <label>券商名称</label>
+                <input type="text" name="broker_name" id="broker_name"
+                       placeholder="如 国信证券">
+            </div>
+
+            <div class="form-group">
+                <label>保证金比例</label>
+                <input type="number" name="margin_ratio" id="margin_ratio"
+                       step="0.01" min="0.1" max="1.0" placeholder="默认 0.5">
+                <small style="color:#888;display:block;margin-top:4px;">
+                    如 0.5 表示50%保证金（融券卖出10000元市值，需抵押5000元保证金）
+                </small>
+            </div>
+
+            <div class="form-group">
+                <label>日利率</label>
+                <input type="number" name="daily_interest_rate" id="daily_interest_rate"
+                       step="0.00001" placeholder="默认 0.00022">
+                <small style="color:#888;display:block;margin-top:4px;">
+                    年化约8%时为 0.00022（0.022%/日），按日计息
+                </small>
+            </div>
+
+            <div class="form-group">
+                <label>强制平仓维持率</label>
+                <input type="number" name="force_liquidation_ratio" id="force_liquidation_ratio"
+                       step="0.01" placeholder="默认 1.3">
+                <small style="color:#888;display:block;margin-top:4px;">
+                    如 1.3 表示保证金低于130%时券商强制平仓
+                </small>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="margin-top: 15px;">保存所有设置</button>
     </form>
     <div id="msg" style="margin-top:12px;"></div>
 </div>
@@ -108,6 +174,19 @@ async function loadSettings() {
     document.getElementById('cb_broker_fee').value = s.cb_broker_fee;
     document.getElementById('naked_discount_threshold').value = s.naked_discount_threshold;
     document.getElementById('naked_enabled').checked = s.naked_enabled;
+    document.getElementById('short_enabled').checked = s.short_enabled;
+    document.getElementById('short_max_fund').value = s.short_max_fund || 100000;
+    document.getElementById('naked_max_fund').value = s.naked_max_fund || 100000;
+
+    // 加载券商保证金设置
+    const marginRes = await fetch('/api/settings/margin-settings');
+    if (marginRes.ok) {
+        const ms = await marginRes.json();
+        document.getElementById('broker_name').value = ms.broker_name || '';
+        document.getElementById('margin_ratio').value = ms.margin_ratio || 0.5;
+        document.getElementById('daily_interest_rate').value = ms.daily_interest_rate || 0.00022;
+        document.getElementById('force_liquidation_ratio').value = ms.force_liquidation_ratio || 1.3;
+    }
 }
 
 document.getElementById('settingsForm').onsubmit = async (e) => {
@@ -122,12 +201,29 @@ document.getElementById('settingsForm').onsubmit = async (e) => {
         cb_broker_fee: parseFloat(form.get('cb_broker_fee') || '0.00006'),
         naked_discount_threshold: parseFloat(form.get('naked_discount_threshold') || '-2.0'),
         naked_enabled: form.get('naked_enabled') === 'on',
+        short_enabled: form.get('short_enabled') === 'on',
+        short_max_fund: parseFloat(form.get('short_max_fund') || '100000'),
+        naked_max_fund: parseFloat(form.get('naked_max_fund') || '100000'),
     };
+    const marginBody = {
+        broker_name: form.get('broker_name') || '默认券商',
+        margin_ratio: parseFloat(form.get('margin_ratio') || '0.5'),
+        daily_interest_rate: parseFloat(form.get('daily_interest_rate') || '0.00022'),
+        force_liquidation_ratio: parseFloat(form.get('force_liquidation_ratio') || '1.3'),
+    };
+
     const res = await fetch('/api/settings', {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(body),
     });
+
+    await fetch('/api/settings/margin-settings', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(marginBody),
+    });
+
     const msg = document.getElementById('msg');
     if (res.ok) {
         msg.innerHTML = '<span style="color:#27ae60">设置已保存</span>';

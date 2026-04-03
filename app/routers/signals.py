@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Query, BackgroundTasks
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi import APIRouter, Query, HTTPException
+from fastapi.responses import StreamingResponse
 from typing import Optional
 import aiosqlite
 import json
@@ -64,6 +64,25 @@ async def list_signals(
         return [dict(r) for r in rows]
 
 
+@router.delete("/{signal_id}")
+async def delete_signal(signal_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("SELECT id FROM signals WHERE id = ?", (signal_id,))
+        if not await cursor.fetchone():
+            raise HTTPException(status_code=404, detail="信号不存在")
+        await db.execute("DELETE FROM signals WHERE id = ?", (signal_id,))
+        await db.commit()
+        return {"message": "删除成功"}
+
+
+@router.delete("")
+async def delete_all_signals():
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("DELETE FROM signals")
+        await db.commit()
+        return {"message": f"已删除全部 {cursor.rowcount} 条信号记录"}
+
+
 @router.post("/scan")
 async def trigger_scan():
     """手动触发一次扫描+模拟买入（同步版本，立即返回结果）"""
@@ -80,7 +99,7 @@ async def _run_scan(scan_id: str, settings: dict):
     target_lot_size = int(settings["target_lot_size"])
     scan_mode = settings["scan_mode"]
 
-    _scan_results[scan_id] = {"status": "running", "steps": [], "signals": [], "done": False}
+    _scan_results[scan_id] = {"status": "running", "steps": [], "signals": [], "all_scanned": [], "done": False}
 
     try:
         if scan_mode == "all":
@@ -103,30 +122,53 @@ async def _run_scan(scan_id: str, settings: dict):
             async for step in gen:
                 _scan_results[scan_id]["steps"].append(step)
 
-                if step['status'] == 'signal_found':
-                    if 'stock_price' not in step or 'cb_code' not in step:
-                        continue
-                    signals.append({
+                # 收集所有扫描到的CB（signal_found和not_qualified）
+                if step['status'] in ('signal_found', 'not_qualified'):
+                    all_scanned_item = {
+                        'status': step['status'],
                         'cb_code': step['cb_code'],
                         'cb_name': step['cb_name'],
                         'stock_code': step['stock_code'],
-                        'stock_price': step['stock_price'],
-                        'cb_price': step['cb_price'],
+                        'stock_name': step.get('stock_name'),
+                        'stock_price': step.get('stock_price'),
+                        'cb_price': step.get('cb_price'),
                         'conversion_price': step.get('conversion_price'),
                         'conversion_value': step.get('conversion_value'),
                         'premium_rate': step.get('premium_rate'),
                         'discount_space': step.get('discount_space'),
-                        'target_buy_price': round(step['cb_price'], 2),
-                        'target_shares': step.get('target_shares', target_lot_size),
-                        'trade_type': step.get('trade_type', 'HEDGE'),
-                    })
+                        'has_holdings': step.get('has_holdings', False),
+                    }
+                    if step['status'] == 'signal_found':
+                        all_scanned_item.update({
+                            'target_buy_price': round(step['cb_price'], 2),
+                            'target_shares': step.get('target_shares', target_lot_size),
+                            'trade_type': step.get('trade_type', 'HEDGE'),
+                            'short_available': step.get('short_available', False),
+                        })
+                        signals.append({
+                            'cb_code': step['cb_code'],
+                            'cb_name': step['cb_name'],
+                            'stock_code': step['stock_code'],
+                            'stock_name': step.get('stock_name'),
+                            'stock_price': step['stock_price'],
+                            'cb_price': step['cb_price'],
+                            'conversion_price': step.get('conversion_price'),
+                            'conversion_value': step.get('conversion_value'),
+                            'premium_rate': step.get('premium_rate'),
+                            'discount_space': step.get('discount_space'),
+                            'target_buy_price': round(step['cb_price'], 2),
+                            'target_shares': step.get('target_shares', target_lot_size),
+                            'trade_type': step.get('trade_type', 'HEDGE'),
+                            'short_available': step.get('short_available', False),
+                        })
+                    _scan_results[scan_id]["all_scanned"].append(all_scanned_item)
         except Exception as e:
             _scan_results[scan_id]["steps"].append({
                 "event": "error",
                 "message": f"扫描过程异常: {str(e)}",
             })
 
-        executed_trades = []
+        # 只写入 signals 表，status 为 PENDING，不写 trades 表
         try:
             now = datetime.now().isoformat()
             async with aiosqlite.connect(DB_PATH) as db:
@@ -149,66 +191,6 @@ async def _run_scan(scan_id: str, settings: dict):
                          sig['conversion_value'], sig['premium_rate'], sig['discount_space'],
                          sig['target_buy_price'], sig['target_shares'])
                     )
-                    signal_id = cursor.lastrowid
-
-                    buy_price = sig['target_buy_price']
-                    buy_shares = sig['target_shares']
-                    trade_type = sig.get('trade_type', 'HEDGE')
-                    stock_price = sig['stock_price']
-                    conversion_price = sig.get('conversion_price') or 0
-
-                    # 计算交易费用
-                    buy_amount = buy_price * 100 * buy_shares
-                    cb_buy_fee = buy_amount * float(settings.get('cb_broker_fee', '0.00006'))
-                    stock_broker_fee = float(settings.get('stock_broker_fee', '0.0001'))
-                    stock_stamp_tax = float(settings.get('stock_stamp_tax', '0.0015'))
-
-                    if trade_type == 'NAKED':
-                        # 裸套：CB买入佣金 + 股票卖出佣金
-                        shares_from_cb = (100.0 / conversion_price) * buy_shares if conversion_price > 0 else 0
-                        sell_amount_est = stock_price * shares_from_cb  # 估算卖出入账
-                        stock_sell_fee = sell_amount_est * stock_broker_fee
-                        total_fees = cb_buy_fee + stock_sell_fee
-                    else:
-                        # 持仓对冲：CB双边佣金 + 印花税 + 股票卖出佣金
-                        cb_sell_fee_est = buy_amount * float(settings.get('cb_broker_fee', '0.00006'))
-                        stock_sell_fee_est = buy_amount * stock_broker_fee
-                        stamp_tax_est = buy_amount * stock_stamp_tax
-                        total_fees = cb_buy_fee + cb_sell_fee_est + stock_sell_fee_est + stamp_tax_est
-
-                    cursor = await db.execute(
-                        """INSERT INTO trades
-                        (signal_id, cb_code, cb_name, buy_time, buy_price, buy_shares, buy_amount, status, trade_type)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)""",
-                        (signal_id, sig['cb_code'], sig['cb_name'],
-                         now, buy_price, buy_shares, buy_amount,
-                         trade_type)
-                    )
-                    trade_id = cursor.lastrowid
-                    executed_trades.append({
-                        'signal_id': signal_id,
-                        'trade_id': trade_id,
-                        'cb_code': sig['cb_code'],
-                        'cb_name': sig['cb_name'],
-                        'stock_code': sig['stock_code'],
-                        'stock_price': stock_price,
-                        'cb_price': sig['cb_price'],
-                        'conversion_price': conversion_price,
-                        'conversion_value': sig.get('conversion_value'),
-                        'premium_rate': sig.get('premium_rate'),
-                        'discount_space': sig.get('discount_space'),
-                        'buy_price': buy_price,
-                        'buy_shares': buy_shares,
-                        'trade_type': trade_type,
-                        'buy_amount': buy_amount,
-                        'total_fees': round(total_fees, 2),
-                        'cb_buy_fee': round(cb_buy_fee, 2),
-                    })
-
-                    await db.execute(
-                        "UPDATE signals SET status = 'EXECUTED' WHERE id = ?",
-                        (signal_id,)
-                    )
 
                 await db.commit()
         except Exception as e:
@@ -220,7 +202,7 @@ async def _run_scan(scan_id: str, settings: dict):
         _scan_results[scan_id]["done"] = True
         _scan_results[scan_id]["status"] = "done"
         _scan_results[scan_id]["signals_found"] = len(signals)
-        _scan_results[scan_id]["trades"] = executed_trades
+        _scan_results[scan_id]["signals"] = signals
         _scan_results[scan_id]["message"] = (
             f"扫描完成，发现 {len(signals)} 个信号" if signals else "无符合条件信号"
         )
@@ -287,10 +269,10 @@ async def scan_stream():
                     return
 
             if result.get("done"):
-                yield f"event: done\ndata: {json.dumps({'signals_found': result.get('signals_found', 0), 'trades': result.get('trades', []), 'message': result.get('message', '')}, ensure_ascii=False)}\n\n"
+                yield f"event: done\ndata: {json.dumps({'signals_found': result.get('signals_found', 0), 'signals': result.get('signals', []), 'all_scanned': result.get('all_scanned', []), 'message': result.get('message', '')}, ensure_ascii=False)}\n\n"
                 return
 
-        yield f"event: done\ndata: {json.dumps({'signals_found': 0, 'trades': [], 'message': '扫描超时'}, ensure_ascii=False)}\n\n"
+        yield f"event: done\ndata: {json.dumps({'signals_found': 0, 'signals': [], 'all_scanned': [], 'message': '扫描超时'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_generator(),

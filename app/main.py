@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 from app.database import init_db
-from app.routers import holdings, signals, trades, summary, settings
+from app.routers import holdings, signals, trades, summary, settings, margin
 
 app = FastAPI(title="可转债套利系统")
 
@@ -12,6 +12,7 @@ app.include_router(signals.router)
 app.include_router(trades.router)
 app.include_router(summary.router)
 app.include_router(settings.router)
+app.include_router(margin.router)
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"

@@ -3,34 +3,86 @@
 {% block content %}
 <h1>套利信号记录</h1>
 
+<div class="card" style="margin-bottom: 12px; display: flex; align-items: center; gap: 10px;">
+    <button class="btn btn-danger" onclick="deleteAll()">清空全部</button>
+</div>
+
 <div class="card">
-    <table>
+    <table id="signalsTable">
         <thead>
             <tr>
-                <th>时间</th>
-                <th>转债代码</th>
-                <th>转债名称</th>
-                <th>正股代码</th>
-                <th>溢价率</th>
-                <th>折价空间</th>
-                <th>目标买入价</th>
-                <th>张数</th>
-                <th>状态</th>
+                <th data-sort="signal_time">时间</th>
+                <th data-sort="cb_code">转债代码</th>
+                <th data-sort="cb_name">转债名称</th>
+                <th data-sort="stock_code">正股代码</th>
+                <th data-sort="premium_rate">溢价率</th>
+                <th data-sort="discount_space">折价空间</th>
+                <th data-sort="target_buy_price">目标买入价</th>
+                <th data-sort="target_shares">张数</th>
+                <th data-sort="status">状态</th>
+                <th>操作</th>
             </tr>
         </thead>
         <tbody id="signalsBody">
-            <tr><td colspan="9">加载中...</td></tr>
+            <tr><td colspan="10">加载中...</td></tr>
         </tbody>
     </table>
 </div>
 
 <script>
+let sortState = { signalsTable: { column: 'signal_time', direction: 'desc' } };
+
+function makeSortable(tableId, defaultCol, defaultDir) {
+    sortState[tableId] = { column: defaultCol, direction: defaultDir };
+    const headers = document.querySelectorAll(`#${tableId} th[data-sort]`);
+    headers.forEach(th => {
+        th.style.cursor = 'pointer';
+        th.title = '点击排序';
+        th.addEventListener('click', () => {
+            const col = th.dataset.sort;
+            if (sortState[tableId].column === col) {
+                sortState[tableId].direction = sortState[tableId].direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortState[tableId] = { column: col, direction: 'asc' };
+            }
+            sortTable(tableId, col, sortState[tableId].direction);
+        });
+        if (!th.querySelector('.sort-indicator')) {
+            th.innerHTML += ' <span class="sort-indicator" style="font-size:10px;color:#ccc;"></span>';
+        }
+    });
+    const defaultHeader = document.querySelector(`#${tableId} th[data-sort="${defaultCol}"] .sort-indicator`);
+    if (defaultHeader) defaultHeader.textContent = defaultDir === 'asc' ? ' ▲' : ' ▼';
+}
+
+function sortTable(tableId, col, direction) {
+    const tbody = document.querySelector(`#${tableId} tbody`);
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const colIndex = Array.from(document.querySelectorAll(`#${tableId} th[data-sort]`)).findIndex(th => th.dataset.sort === col);
+
+    rows.sort((a, b) => {
+        let aVal = a.cells[colIndex]?.textContent.trim() || '';
+        let bVal = b.cells[colIndex]?.textContent.trim() || '';
+        const aNum = parseFloat(aVal.replace(/[^\d.-]/g, ''));
+        const bNum = parseFloat(bVal.replace(/[^\d.-]/g, ''));
+        if (!isNaN(aNum) && !isNaN(bNum)) {
+            return direction === 'asc' ? aNum - bNum : bNum - aNum;
+        }
+        return direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+    });
+
+    rows.forEach(row => tbody.appendChild(row));
+    document.querySelectorAll(`#${tableId} th .sort-indicator`).forEach(el => el.textContent = '');
+    const activeHeader = document.querySelector(`#${tableId} th[data-sort="${col}"] .sort-indicator`);
+    if (activeHeader) activeHeader.textContent = direction === 'asc' ? ' ▲' : ' ▼';
+}
+
 async function loadSignals() {
     const res = await fetch('/api/signals?limit=100');
     const data = await res.json();
     const tbody = document.getElementById('signalsBody');
     if (data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9">暂无信号</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10">暂无信号</td></tr>';
         return;
     }
     tbody.innerHTML = data.map(s => {
@@ -48,9 +100,24 @@ async function loadSignals() {
             <td>${s.target_buy_price || '-'}</td>
             <td>${s.target_shares || '-'}</td>
             <td class="${statusColor}">${s.status}</td>
+            <td><button class="btn btn-danger btn-sm" onclick="deleteSignal(${s.id})">删除</button></td>
         </tr>`;
     }).join('');
+    setTimeout(() => makeSortable('signalsTable', 'signal_time', 'desc'), 0);
 }
+
+async function deleteSignal(id) {
+    if (!confirm('确认删除该信号？')) return;
+    await fetch(`/api/signals/${id}`, { method: 'DELETE' });
+    loadSignals();
+}
+
+async function deleteAll() {
+    if (!confirm('确认清空全部信号记录？此操作不可恢复。')) return;
+    await fetch('/api/signals', { method: 'DELETE' });
+    loadSignals();
+}
+
 loadSignals();
 </script>
 {% endblock %}

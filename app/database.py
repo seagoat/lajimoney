@@ -119,3 +119,73 @@ async def init_db():
                 (key, value)
             )
         await db.commit()
+
+        # === 新增迁移：融券相关表 ===
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS loan_positions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id INTEGER NOT NULL,
+                stock_code TEXT NOT NULL,
+                stock_name TEXT,
+                shares INTEGER NOT NULL,
+                loan_price REAL NOT NULL,
+                loan_amount REAL NOT NULL,
+                loan_time TEXT NOT NULL,
+                cover_time TEXT,
+                cover_price REAL,
+                cover_amount REAL,
+                interest_days INTEGER DEFAULT 0,
+                interest_rate REAL NOT NULL,
+                interest_fee REAL DEFAULT 0,
+                status TEXT DEFAULT 'ACTIVE',
+                created_at TEXT,
+                updated_at TEXT
+            )
+        """)
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS margin_settings (
+                id INTEGER PRIMARY KEY,
+                broker_name TEXT NOT NULL,
+                margin_ratio REAL NOT NULL DEFAULT 0.5,
+                daily_interest_rate REAL NOT NULL DEFAULT 0.00022,
+                force_liquidation_ratio REAL NOT NULL DEFAULT 1.3,
+                created_at TEXT,
+                updated_at TEXT
+            )
+        """)
+
+        # trades 表新增 short_position_id 和 conversion_price 列
+        cursor = await db.execute("PRAGMA table_info(trades)")
+        existing_trade_cols = [row[1] for row in await cursor.fetchall()]
+        if 'short_position_id' not in existing_trade_cols:
+            await db.execute("ALTER TABLE trades ADD COLUMN short_position_id INTEGER")
+        if 'conversion_price' not in existing_trade_cols:
+            await db.execute("ALTER TABLE trades ADD COLUMN conversion_price REAL")
+
+        # 插入默认券商配置
+        cursor = await db.execute("SELECT id FROM margin_settings LIMIT 1")
+        if not await cursor.fetchone():
+            from datetime import datetime
+            now = datetime.now().isoformat()
+            await db.execute(
+                """INSERT INTO margin_settings
+                   (id, broker_name, margin_ratio, daily_interest_rate, force_liquidation_ratio, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (1, '默认券商', 0.5, 0.00022, 1.3, now, now)
+            )
+
+        # 新增 settings
+        new_margin_settings = [
+            ('short_enabled', 'false'),
+            ('margin_ratio', '0.5'),
+            ('margin_daily_interest', '0.00022'),
+            ('short_max_fund', '100000'),
+            ('naked_max_fund', '100000'),
+        ]
+        for key, value in new_margin_settings:
+            await db.execute(
+                "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+                (key, value)
+            )
+        await db.commit()

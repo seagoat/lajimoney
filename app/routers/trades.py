@@ -33,6 +33,25 @@ async def list_trades(
         return [dict(r) for r in rows]
 
 
+@router.delete("/{trade_id}")
+async def delete_trade(trade_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("SELECT id FROM trades WHERE id = ?", (trade_id,))
+        if not await cursor.fetchone():
+            raise HTTPException(status_code=404, detail="成交记录不存在")
+        await db.execute("DELETE FROM trades WHERE id = ?", (trade_id,))
+        await db.commit()
+        return {"message": "删除成功"}
+
+
+@router.delete("")
+async def delete_all_trades():
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("DELETE FROM trades")
+        await db.commit()
+        return {"message": f"已删除全部 {cursor.rowcount} 条成交记录"}
+
+
 @router.post("/{trade_id}/settle")
 async def settle_trade(trade_id: int):
     """手动结算一笔持仓（模拟卖出）"""
