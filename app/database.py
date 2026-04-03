@@ -95,6 +95,16 @@ async def init_db():
             await db.execute("ALTER TABLE signals ADD COLUMN trade_type TEXT DEFAULT 'HEDGE'")
         if 'has_holdings' not in signal_cols:
             await db.execute("ALTER TABLE signals ADD COLUMN has_holdings INTEGER DEFAULT 0")
+        if 'next_day_open_price' not in signal_cols:
+            await db.execute("ALTER TABLE signals ADD COLUMN next_day_open_price REAL")
+        if 'actual_profit' not in signal_cols:
+            await db.execute("ALTER TABLE signals ADD COLUMN actual_profit REAL")
+        if 'actual_profit_rate' not in signal_cols:
+            await db.execute("ALTER TABLE signals ADD COLUMN actual_profit_rate REAL")
+        if 'realtime_review_price' not in signal_cols:
+            await db.execute("ALTER TABLE signals ADD COLUMN realtime_review_price REAL")
+        if 'reviewed_at' not in signal_cols:
+            await db.execute("ALTER TABLE signals ADD COLUMN reviewed_at TEXT")
 
         await db.commit()
 

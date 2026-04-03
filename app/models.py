@@ -45,6 +45,18 @@ class SignalResponse(BaseModel):
     target_shares: Optional[int]
     signal_time: str
     status: str
+    stock_name: Optional[str] = None
+    trade_type: Optional[str] = None
+    has_holdings: Optional[int] = None
+    next_day_open_price: Optional[float] = None
+    actual_profit: Optional[float] = None
+    actual_profit_rate: Optional[float] = None
+    realtime_review_price: Optional[float] = None
+    reviewed_at: Optional[str] = None
+
+
+class ReviewRequest(BaseModel):
+    next_day_open_price: Optional[float] = None
 
 
 # === 成交模型 ===

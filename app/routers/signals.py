@@ -4,7 +4,7 @@ from typing import Optional
 import aiosqlite
 import json
 from datetime import datetime
-from app.models import SignalResponse
+from app.models import SignalResponse, ReviewRequest
 from app.config import DB_PATH
 from app.services.signal_engine import scan_portfolio_gen, scan_all_cb_gen
 
@@ -297,3 +297,77 @@ async def scan_stream():
             "X-Accel-Buffering": "no",
         }
     )
+
+
+@router.post("/review/{signal_id}")
+async def review_signal(signal_id: int, body: ReviewRequest = None):
+    """
+    复盘裸套信号：
+    1. 如果 next_day_open_price 未设置，接收并保存
+    2. 用当前正股价格更新 realtime_review_price
+    3. 计算 actual_profit（基于隔日开盘价）
+    """
+    from app.services.data_fetcher import get_stock_price
+    import asyncio
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM signals WHERE id = ?", (signal_id,)
+        )
+        row = await cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="信号不存在")
+
+        sig = dict(row)
+        if sig.get('trade_type') != 'NAKED':
+            raise HTTPException(status_code=400, detail="仅支持裸套信号复盘")
+
+        now = datetime.now().isoformat()
+        updates = []
+        params = []
+
+        # 获取当前正股实时价格
+        stock_price_current = await asyncio.to_thread(get_stock_price, sig['stock_code'])
+        updates.append("realtime_review_price = ?")
+        params.append(stock_price_current)
+        updates.append("reviewed_at = ?")
+        params.append(now)
+
+        # 如果传入了隔日开盘价（首次复盘），计算实际收益
+        if body and body.next_day_open_price is not None:
+            updates.append("next_day_open_price = ?")
+            params.append(body.next_day_open_price)
+
+            buy_price = sig['target_buy_price'] or sig['cb_price'] or 0
+            target_shares = sig['target_shares'] or 0
+            conversion_price = sig['conversion_price'] or 1
+            next_day_price = body.next_day_open_price
+
+            cb_amount = buy_price * target_shares
+            shares_from_cb = (target_shares * 100.0) / conversion_price
+            sell_amount = next_day_price * shares_from_cb
+            cb_fee = cb_amount * 0.00006
+            stock_fee = sell_amount * 0.0001
+            actual_profit = sell_amount - cb_amount - cb_fee - stock_fee
+            actual_profit_rate = (actual_profit / cb_amount * 100) if cb_amount > 0 else 0
+
+            updates.append("actual_profit = ?")
+            params.append(round(actual_profit, 2))
+            updates.append("actual_profit_rate = ?")
+            params.append(round(actual_profit_rate, 4))
+            updates.append("status = ?")
+            params.append('REVIEWED')
+
+        params.append(signal_id)
+        await db.execute(
+            f"UPDATE signals SET {', '.join(updates)} WHERE id = ?",
+            params
+        )
+        await db.commit()
+
+        # 返回更新后的记录
+        cursor = await db.execute("SELECT * FROM signals WHERE id = ?", (signal_id,))
+        row = await cursor.fetchone()
+        return dict(row)
+
