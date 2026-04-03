@@ -179,7 +179,15 @@ async def _run_scan(scan_id: str, settings: dict):
                 )
                 scan_log_id = cursor.lastrowid
 
+                inserted = 0
                 for sig in signals:
+                    # 跳过已存在的 PENDING 同名信号（去重）
+                    cursor = await db.execute(
+                        "SELECT id FROM signals WHERE cb_code = ? AND stock_code = ? AND status = 'PENDING' LIMIT 1",
+                        (sig['cb_code'], sig['stock_code'])
+                    )
+                    if await cursor.fetchone():
+                        continue
                     cursor = await db.execute(
                         """INSERT INTO signals
                         (scan_log_id, cb_code, cb_name, stock_code, stock_name, stock_price, cb_price,
@@ -192,7 +200,13 @@ async def _run_scan(scan_id: str, settings: dict):
                          sig['target_buy_price'], sig['target_shares'],
                          sig.get('trade_type', 'HEDGE'), sig.get('has_holdings', False) and 1 or 0)
                     )
+                    inserted += 1
 
+                # 更新 scan_log 的实际信号数量
+                await db.execute(
+                    "UPDATE scan_log SET signals_found = ? WHERE id = ?",
+                    (inserted, scan_log_id)
+                )
                 await db.commit()
         except Exception as e:
             _scan_results[scan_id]["steps"].append({
@@ -202,10 +216,10 @@ async def _run_scan(scan_id: str, settings: dict):
 
         _scan_results[scan_id]["done"] = True
         _scan_results[scan_id]["status"] = "done"
-        _scan_results[scan_id]["signals_found"] = len(signals)
+        _scan_results[scan_id]["signals_found"] = inserted
         _scan_results[scan_id]["signals"] = signals
         _scan_results[scan_id]["message"] = (
-            f"扫描完成，发现 {len(signals)} 个信号" if signals else "无符合条件信号"
+            f"扫描完成，发现 {inserted} 个新信号" if inserted > 0 else "无符合条件信号"
         )
 
     except Exception as e:
