@@ -43,11 +43,11 @@ if exist .venv\Scripts\python.exe (
     uv venv .venv --python 3.12
 )
 
-echo [3/4] Installing dependencies (only using pre-built wheels)...
-uv pip install --only-binary :all: -r requirements.txt --python .venv\Scripts\python.exe
+echo [3/4] Installing dependencies (using Tsinghua mirror)...
+uv pip install -r requirements.txt --python .venv\Scripts\python.exe -i https://pypi.tuna.tsinghua.edu.cn/simple --only-binary pydantic --only-binary pydantic-core
 if %errorlevel% neq 0 (
-    echo No pre-built wheels found, falling back to source build...
-    uv pip install -r requirements.txt --python .venv\Scripts\python.exe
+    echo Fallback: installing without binary restrictions...
+    uv pip install -r requirements.txt --python .venv\Scripts\python.exe -i https://pypi.tuna.tsinghua.edu.cn/simple
     if %errorlevel% neq 0 (
         echo Dependencies install failed.
         pause
