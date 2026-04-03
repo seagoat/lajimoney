@@ -50,29 +50,8 @@
     </table>
 </div>
 
-<div class="card" style="margin-top: 20px;">
-    <h2>融券持仓 <button class="btn btn-danger btn-sm" onclick="closeAllPositions()" style="margin-left:10px;">全部平仓</button></h2>
-    <table id="loanPositionsTable">
-        <thead>
-            <tr>
-                <th data-sort="code">股票代码</th>
-                <th data-sort="name">名称</th>
-                <th data-sort="shares">融券数量</th>
-                <th data-sort="price">融券价格</th>
-                <th data-sort="amount">融券总额</th>
-                <th data-sort="interest">利息</th>
-                <th data-sort="status">状态</th>
-                <th>操作</th>
-            </tr>
-        </thead>
-        <tbody id="loanPositionsBody">
-            <tr><td colspan="8">加载中...</td></tr>
-        </tbody>
-    </table>
-</div>
-
 <script>
-let sortState = { holdingsTable: { column: 'code', direction: 'asc' }, loanPositionsTable: { column: 'code', direction: 'asc' } };
+let sortState = { holdingsTable: { column: 'code', direction: 'asc' } };
 
 function makeSortable(tableId, defaultCol, defaultDir) {
     sortState[tableId] = { column: defaultCol, direction: defaultDir };
@@ -120,18 +99,20 @@ function sortTable(tableId, col, direction) {
 }
 
 async function loadHoldings() {
+    try {
     const res = await fetch('/api/holdings');
     const holdings = await res.json();
     const tbody = document.getElementById('holdingsBody');
 
     if (holdings.length === 0) {
         tbody.innerHTML = '<tr><td colspan="11">暂无底仓</td></tr>';
+        setTimeout(() => makeSortable('holdingsTable', 'code', 'asc'), 0);
         return;
     }
 
-    // 并行查询每只正股的转债信息
+    // 并行查询每只正股的转债信息（带10秒超时）
     const codes = holdings.map(h => h.stock_code).join(',');
-    const lookupRes = await fetch(`/api/holdings/lookup-batch?codes=${codes}`);
+    const lookupRes = await fetch(`/api/holdings/lookup-batch?codes=${codes}`, { signal: AbortSignal.timeout(10000) });
     const lookupData = await lookupRes.json();
     const lookupMap = {};
     for (const item of lookupData) {
@@ -161,6 +142,10 @@ async function loadHoldings() {
         </tr>
     `}).join('');
     setTimeout(() => makeSortable('holdingsTable', 'code', 'asc'), 0);
+    } catch (err) {
+        const tbody = document.getElementById('holdingsBody');
+        tbody.innerHTML = '<tr><td colspan="11">加载失败: ' + err.message + '</td></tr>';
+    }
 }
 
 document.getElementById('addForm').onsubmit = async (e) => {
@@ -209,45 +194,5 @@ codeInput.addEventListener('blur', autoFillName);
 codeInput.addEventListener('change', autoFillName);
 
 loadHoldings();
-
-// 融券持仓
-async function loadLoanPositions() {
-    const res = await fetch('/api/margin/positions');
-    const data = await res.json();
-    const tbody = document.getElementById('loanPositionsBody');
-    if (data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8">暂无融券持仓</td></tr>';
-        return;
-    }
-    tbody.innerHTML = data.map(p => `
-        <tr>
-            <td>${p.stock_code}</td>
-            <td>${p.stock_name || '-'}</td>
-            <td>${p.shares}</td>
-            <td>${p.loan_price}</td>
-            <td>${p.loan_amount != null ? p.loan_amount.toFixed(2) : '-'}</td>
-            <td>${p.interest_fee > 0 ? p.interest_fee.toFixed(2) : '-'}</td>
-            <td class="${p.status === 'ACTIVE' ? 'loss' : 'profit'}">${p.status === 'ACTIVE' ? '持仓中' : '已平仓'}</td>
-            <td>
-                ${p.status === 'ACTIVE' ? `<button class="btn btn-danger btn-sm" onclick="closePosition(${p.id})">平仓</button>` : '-'}
-            </td>
-        </tr>
-    `).join('');
-    setTimeout(() => makeSortable('loanPositionsTable', 'code', 'asc'), 0);
-}
-
-async function closePosition(id) {
-    if (!confirm('确认平仓？')) return;
-    await fetch(`/api/margin/${id}`, { method: 'DELETE' });
-    loadLoanPositions();
-}
-
-async function closeAllPositions() {
-    if (!confirm('确认全部平仓？')) return;
-    await fetch(`/api/margin/positions/all`, { method: 'DELETE' });
-    loadLoanPositions();
-}
-
-loadLoanPositions();
 </script>
 {% endblock %}

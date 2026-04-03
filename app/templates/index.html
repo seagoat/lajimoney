@@ -3,22 +3,20 @@
 {% block content %}
 <div class="stat-grid">
     <div class="stat-card">
-        <div class="stat-value {% if overview.total_profit >= 0 %}profit{% else %}loss{% endif %}">
-            {{ "%.2f"|format(overview.total_profit) }}
-        </div>
-        <div class="stat-label">累计收益（元）</div>
+        <div class="stat-value">{{ overview.total_profit }}</div>
+        <div class="stat-label">历史信号总数</div>
     </div>
     <div class="stat-card">
-        <div class="stat-value">{{ "%.1f"|format(overview.win_rate) }}%</div>
+        <div class="stat-value">{{ overview.win_rate }}%</div>
         <div class="stat-label">历史胜率</div>
     </div>
     <div class="stat-card">
         <div class="stat-value">{{ overview.total_trades }}</div>
-        <div class="stat-label">总成交笔数</div>
+        <div class="stat-label">今日信号数</div>
     </div>
     <div class="stat-card">
         <div class="stat-value">{{ overview.pending_count }}</div>
-        <div class="stat-label">当前持仓</div>
+        <div class="stat-label">待处理信号</div>
     </div>
 </div>
 
@@ -42,7 +40,7 @@
 
 <div class="card">
     <h2>快速操作</h2>
-    <p><a href="/holdings">管理底仓</a> | <a href="/signals">查看信号</a> | <a href="/trades">成交记录</a></p>
+    <p><a href="/holdings">管理底仓</a> | <a href="/signals">查看信号</a></p>
 </div>
 
 <script>
@@ -327,14 +325,14 @@ function triggerScan() {
         html += `<div style="margin:10px 0;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                 <span>策略:</span>
-                <label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="filter-strategy" value="HEDGE" onchange="applyFilters()" checked>对冲</label>
-                <label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="filter-strategy" value="SHORT" onchange="applyFilters()" checked>融券</label>
-                <label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="filter-strategy" value="NAKED" onchange="applyFilters()" checked>裸套</label>
-                <label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="filter-strategy" value="none" onchange="applyFilters()">无机会</label>
+                <label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="filter-strategy" value="HEDGE" checked>对冲</label>
+                <label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="filter-strategy" value="SHORT" checked>融券</label>
+                <label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="filter-strategy" value="NAKED" checked>裸套</label>
+                <label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="filter-strategy" value="none">无机会</label>
             </div>
-            <div style="display:flex;align-items:center;gap:6px;">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                 <span>溢价:</span>
-                <select id="filterPremium" onchange="applyFilters()" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;">
+                <select id="filterPremium" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;">
                     <option value="all">全部</option>
                     <option value="negative">负溢价</option>
                     <option value="positive">正溢价</option>
@@ -342,7 +340,7 @@ function triggerScan() {
             </div>
             <div style="display:flex;align-items:center;gap:6px;">
                 <span>底仓:</span>
-                <select id="filterHoldings" onchange="applyFilters()" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;">
+                <select id="filterHoldings" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;">
                     <option value="all">全部</option>
                     <option value="yes">有底仓</option>
                     <option value="no">无底仓</option>
@@ -377,7 +375,15 @@ function triggerScan() {
         // 保存原始数据供筛选用
         window._allScanned = allScanned;
 
+        // 绑定筛选控件事件
+        document.querySelectorAll('.filter-strategy').forEach(cb => {
+            cb.addEventListener('change', applyFilters);
+        });
+        document.getElementById('filterPremium')?.addEventListener('change', applyFilters);
+        document.getElementById('filterHoldings')?.addEventListener('change', applyFilters);
+
         renderOpportunityTable(allScanned);
+        applyFilters();  // 应用初始筛选状态（无机会默认不选中）
         makeSortable('opportunityTable');
     });
 

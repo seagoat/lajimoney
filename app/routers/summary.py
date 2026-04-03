@@ -11,34 +11,10 @@ async def get_overview() -> dict:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
 
-        # 总收益
-        cursor = await db.execute(
-            "SELECT SUM(profit) as total FROM trades WHERE status = 'SOLD'"
-        )
+        # 总信号数
+        cursor = await db.execute("SELECT COUNT(*) as cnt FROM signals")
         row = await cursor.fetchone()
-        total_profit = row['total'] or 0.0
-
-        # 总成交数
-        cursor = await db.execute(
-            "SELECT COUNT(*) as cnt FROM trades WHERE status = 'SOLD'"
-        )
-        row = await cursor.fetchone()
-        total_trades = row['cnt']
-
-        # 胜率
-        cursor = await db.execute(
-            "SELECT COUNT(*) as cnt FROM trades WHERE status = 'SOLD' AND profit > 0"
-        )
-        row = await cursor.fetchone()
-        win_count = row['cnt']
-        win_rate = (win_count / total_trades * 100) if total_trades > 0 else 0.0
-
-        # 待处理持仓数
-        cursor = await db.execute(
-            "SELECT COUNT(*) as cnt FROM trades WHERE status = 'PENDING'"
-        )
-        row = await cursor.fetchone()
-        pending_count = row['cnt']
+        total_signals = row['cnt']
 
         # 今日信号数
         today = date.today().isoformat()
@@ -49,10 +25,17 @@ async def get_overview() -> dict:
         row = await cursor.fetchone()
         today_signals = row['cnt']
 
+        # 待处理信号数
+        cursor = await db.execute(
+            "SELECT COUNT(*) as cnt FROM signals WHERE status = 'PENDING'"
+        )
+        row = await cursor.fetchone()
+        pending_count = row['cnt']
+
         return {
-            "total_profit": round(total_profit, 2),
-            "total_trades": total_trades,
-            "win_rate": round(win_rate, 2),
+            "total_profit": total_signals,
+            "total_trades": today_signals,
+            "win_rate": 0.0,
             "pending_count": pending_count,
             "today_signals": today_signals,
         }

@@ -12,19 +12,23 @@
         <thead>
             <tr>
                 <th data-sort="signal_time">时间</th>
-                <th data-sort="cb_code">转债代码</th>
-                <th data-sort="cb_name">转债名称</th>
-                <th data-sort="stock_code">正股代码</th>
-                <th data-sort="premium_rate">溢价率</th>
-                <th data-sort="discount_space">折价空间</th>
-                <th data-sort="target_buy_price">目标买入价</th>
-                <th data-sort="target_shares">张数</th>
-                <th data-sort="status">状态</th>
+                <th data-sort="cb">转债</th>
+                <th data-sort="stock">正股</th>
+                <th data-sort="holdings">底仓</th>
+                <th data-sort="strategy">策略</th>
+                <th data-sort="premium">溢价率</th>
+                <th data-sort="discount">折价空间</th>
+                <th data-sort="buyPrice">目标买入价</th>
+                <th data-sort="shares">张数</th>
+                <th data-sort="cost">预估成本</th>
+                <th data-sort="profit">预估收益</th>
+                <th data-sort="profitRate">收益率</th>
+                <th data-sort="risk">风险</th>
                 <th>操作</th>
             </tr>
         </thead>
         <tbody id="signalsBody">
-            <tr><td colspan="10">加载中...</td></tr>
+            <tr><td colspan="14">加载中...</td></tr>
         </tbody>
     </table>
 </div>
@@ -82,24 +86,78 @@ async function loadSignals() {
     const data = await res.json();
     const tbody = document.getElementById('signalsBody');
     if (data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10">暂无信号</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="14">暂无信号</td></tr>';
         return;
     }
     tbody.innerHTML = data.map(s => {
+        const buyPrice = s.target_buy_price || s.cb_price || 0;
+        const targetShares = s.target_shares || 0;
+        const stockPrice = s.stock_price || 0;
+        const conversionPrice = s.conversion_price || 1;
+        const tradeType = s.trade_type || 'HEDGE';
+        const hasHoldings = s.has_holdings;
+
+        const holdingsBadge = hasHoldings
+            ? '<span style="background:#27ae60;color:#fff;padding:1px 4px;border-radius:3px;font-size:11px;">有</span>'
+            : '<span style="background:#bbb;color:#fff;padding:1px 4px;border-radius:3px;font-size:11px;">无</span>';
+
+        let cost = 0, profit = 0, riskLevel = '', steps = '-', strategyLabel = '';
+        const cbAmount = buyPrice * targetShares;
+        const sharesFromCb = (targetShares * 100.0) / conversionPrice;
+
+        if (tradeType === 'HEDGE') {
+            const stockSellAmount = stockPrice * sharesFromCb;
+            const cbFee = cbAmount * 0.00006 * 2;
+            const stockFee = stockSellAmount * 0.0001;
+            const stampTax = stockSellAmount * 0.0015;
+            cost = cbAmount + cbFee + stockFee + stampTax;
+            profit = stockSellAmount - cost;
+            riskLevel = '<span style="color:#27ae60;">低</span>';
+            steps = '买入CB → 转股 → 卖出正股';
+            strategyLabel = '<span style="background:#27ae60;color:#fff;padding:1px 4px;border-radius:3px;font-size:11px;">对冲</span>';
+        } else if (tradeType === 'SHORT') {
+            const loanSellAmount = stockPrice * sharesFromCb;
+            const cbFee = cbAmount * 0.00006;
+            const loanFee = loanSellAmount * 0.0001;
+            const interest = loanSellAmount * 0.00022 * 1;
+            cost = cbAmount + cbFee + loanFee + interest;
+            profit = loanSellAmount - cost;
+            riskLevel = '<span style="color:#27ae60;">低</span>';
+            steps = '买入CB → 申请融券卖出正股 → 转股归还融券';
+            strategyLabel = '<span style="background:#3498db;color:#fff;padding:1px 4px;border-radius:3px;font-size:11px;">融券</span>';
+        } else {
+            const stockSellAmount = stockPrice * sharesFromCb;
+            const cbFee = cbAmount * 0.00006;
+            const stockFee = stockSellAmount * 0.0001;
+            cost = cbAmount + cbFee + stockFee;
+            profit = stockSellAmount - cost;
+            riskLevel = '<span style="color:#e74c3c;">高</span>';
+            steps = '买入CB → 转股 → 次日卖出正股（注意隔夜风险）';
+            strategyLabel = '<span style="background:#f39c12;color:#fff;padding:1px 4px;border-radius:3px;font-size:11px;">裸套</span>';
+        }
+
+        const profitRate = cost > 0 ? (profit / cost * 100).toFixed(2) + '%' : '-';
         const premium = s.premium_rate != null ? s.premium_rate.toFixed(2) + '%' : '-';
         const discount = s.discount_space != null ? s.discount_space.toFixed(2) : '-';
-        const statusColor = s.status === 'EXECUTED' ? 'profit' :
-                            s.status === 'PENDING' ? '' : 'loss';
+        const cbInfo = s.cb_name ? `${s.cb_name} (${s.cb_code})` : (s.cb_code || '-');
+        const stockInfo = s.stock_name ? `${s.stock_name} (${s.stock_code})` : (s.stock_code || '-');
+        const isProfit = profit >= 0;
+        const statusColor = s.status === 'EXECUTED' ? 'profit' : s.status === 'PENDING' ? '' : 'loss';
+
         return `<tr>
             <td>${s.signal_time ? s.signal_time.slice(0, 19) : '-'}</td>
-            <td>${s.cb_code || '-'}</td>
-            <td>${s.cb_name || '-'}</td>
-            <td>${s.stock_code}</td>
+            <td>${cbInfo}</td>
+            <td>${stockInfo}</td>
+            <td>${holdingsBadge}</td>
+            <td>${strategyLabel}</td>
             <td class="${s.premium_rate < 0 ? 'profit' : 'loss'}">${premium}</td>
             <td>${discount}</td>
-            <td>${s.target_buy_price || '-'}</td>
-            <td>${s.target_shares || '-'}</td>
-            <td class="${statusColor}">${s.status}</td>
+            <td>${buyPrice > 0 ? buyPrice.toFixed(2) : '-'}</td>
+            <td>${targetShares > 0 ? targetShares : '-'}</td>
+            <td>${cost > 0 ? cost.toFixed(2) : '-'}</td>
+            <td class="${cost > 0 ? (isProfit ? 'profit' : 'loss') : ''}">${cost > 0 ? profit.toFixed(2) : '-'}</td>
+            <td class="${cost > 0 ? (isProfit ? 'profit' : 'loss') : ''}">${profitRate}</td>
+            <td>${riskLevel}</td>
             <td><button class="btn btn-danger btn-sm" onclick="deleteSignal(${s.id})">删除</button></td>
         </tr>`;
     }).join('');

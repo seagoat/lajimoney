@@ -182,14 +182,15 @@ async def _run_scan(scan_id: str, settings: dict):
                 for sig in signals:
                     cursor = await db.execute(
                         """INSERT INTO signals
-                        (scan_log_id, cb_code, cb_name, stock_code, stock_price, cb_price,
+                        (scan_log_id, cb_code, cb_name, stock_code, stock_name, stock_price, cb_price,
                          conversion_price, conversion_value, premium_rate, discount_space,
-                         target_buy_price, target_shares, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')""",
+                         target_buy_price, target_shares, trade_type, has_holdings, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')""",
                         (scan_log_id, sig['cb_code'], sig['cb_name'], sig['stock_code'],
-                         sig['stock_price'], sig['cb_price'], sig['conversion_price'],
+                         sig.get('stock_name'), sig['stock_price'], sig['cb_price'], sig['conversion_price'],
                          sig['conversion_value'], sig['premium_rate'], sig['discount_space'],
-                         sig['target_buy_price'], sig['target_shares'])
+                         sig['target_buy_price'], sig['target_shares'],
+                         sig.get('trade_type', 'HEDGE'), sig.get('has_holdings', False) and 1 or 0)
                     )
 
                 await db.commit()
@@ -222,7 +223,7 @@ async def get_scan_settings():
     return {
         "discount_threshold": float(s.get("discount_threshold", "-1.0")),
         "target_lot_size": int(s.get("target_lot_size", "10")),
-        "scan_mode": s.get("scan_mode", "holdings"),
+        "scan_mode": s.get("scan_mode", "all"),
     }
 
 
