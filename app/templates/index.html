@@ -27,6 +27,10 @@
     </p>
     <button id="scanBtn" class="btn btn-primary" onclick="triggerScan()"
             style="margin-top: 5px;">手动触发扫描</button>
+    <button id="reviewAllBtn" class="btn btn-warning" onclick="reviewAllNaked()"
+            style="margin-top: 5px; margin-left: 8px;">复盘所有裸套</button>
+    <button id="autoProcessBtn" class="btn btn-success" onclick="autoProcess()"
+            style="margin-top: 5px; margin-left: 8px;">每日自动处理</button>
     <div id="scanProgress" style="margin-top: 15px; display: none;">
         <div id="scanStatus" style="margin-bottom: 8px; color: #555; font-size: 14px;"></div>
         <div id="progressBar" style="height: 6px; background: #eee; border-radius: 3px;">
@@ -91,6 +95,59 @@ function sortTable(tableId, col, direction) {
 }
 
 let currentEventSource = null;
+
+// 复盘所有裸套
+async function reviewAllNaked() {
+    const btn = document.getElementById('reviewAllBtn');
+    btn.disabled = true;
+    btn.textContent = '复盘中...';
+    try {
+        const res = await fetch('/api/signals/review-all', { method: 'POST' });
+        const result = await res.json();
+        alert(`复盘完成：${result.updated} 条信号已更新`);
+    } catch (e) {
+        alert('复盘失败: ' + e.message);
+    }
+    btn.disabled = false;
+    btn.textContent = '复盘所有裸套';
+}
+
+// 每日自动处理：扫描 + 复盘
+async function autoProcess() {
+    if (!confirm('将执行每日自动处理：1)触发全量扫描 2)复盘所有历史裸套信号，是否继续？')) return;
+    const btn = document.getElementById('autoProcessBtn');
+    btn.disabled = true;
+    btn.textContent = '处理中...';
+
+    let reviewed = false;
+    const checkAndReview = setInterval(() => {
+        if (currentEventSource === null && !reviewed) {
+            reviewed = true;
+            clearInterval(checkAndReview);
+            reviewAllNaked().finally(() => {
+                btn.disabled = false;
+                btn.textContent = '每日自动处理';
+            });
+        }
+    }, 500);
+
+    // 超时保护
+    setTimeout(() => {
+        clearInterval(checkAndReview);
+        if (reviewed === false) {
+            reviewed = true;
+            clearInterval(checkAndReview);
+            alert('每日自动处理：扫描超时，但继续尝试复盘...');
+            reviewAllNaked().finally(() => {
+                btn.disabled = false;
+                btn.textContent = '每日自动处理';
+            });
+        }
+    }, 90000);
+
+    // 第一步：触发扫描（跳过确认对话框）
+    triggerScan(true);
+}
 
 // 加载并显示当前设置
 async function loadCurrentSettings() {
@@ -250,11 +307,11 @@ function applyFilters() {
     }
 }
 
-function triggerScan() {
+function triggerScan(skipConfirm) {
     if (currentEventSource) {
         currentEventSource.close();
     }
-    if (!confirm('确定要触发一次扫描吗？')) return;
+    if (!skipConfirm && !confirm('确定要触发一次扫描吗？')) return;
 
     const btn = document.getElementById('scanBtn');
     const progressDiv = document.getElementById('scanProgress');
