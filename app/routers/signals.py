@@ -181,10 +181,10 @@ async def _run_scan(scan_id: str, settings: dict):
 
                 inserted = 0
                 for sig in signals:
-                    # 跳过已存在的相同机会（同一转债、相同买入价、相同张数视为重复）
+                    # 同一转债、相同目标价格、张数、正股价格 → 相同机会
                     cursor = await db.execute(
-                        "SELECT id FROM signals WHERE cb_code = ? AND target_buy_price = ? AND target_shares = ? AND status = 'PENDING' LIMIT 1",
-                        (sig['cb_code'], sig.get('target_buy_price'), sig.get('target_shares'))
+                        "SELECT id FROM signals WHERE cb_code = ? AND target_buy_price = ? AND target_shares = ? AND stock_price = ? AND status = 'PENDING' LIMIT 1",
+                        (sig['cb_code'], sig.get('target_buy_price'), sig.get('target_shares'), sig.get('stock_price'))
                     )
                     if await cursor.fetchone():
                         continue
