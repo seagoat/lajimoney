@@ -1,9 +1,9 @@
 """
-数据获取层 - 新浪实时 + THS转债信息
+数据获取层 - 新浪实时 + THS转债信息 + akshare历史K线
 """
 import requests
 import akshare as ak
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 # 股票代码 → 新浪前缀
@@ -35,6 +35,50 @@ def get_stock_price(stock_code: str) -> Optional[float]:
         if price <= 0:
             price = float(parts[2])
         return price if price > 0 else None
+    except Exception:
+        return None
+
+
+def get_stock_next_day_open(stock_code: str, signal_date: str) -> Optional[float]:
+    """
+    获取信号日期后第一个交易日的开盘价（从 akshare 历史日K）
+    stock_code: 纯数字代码，如 '000001'（不带 sz/sh 前缀）
+    signal_date: 信号日期，格式 'YYYY-MM-DD'
+    返回: 开盘价或 None
+    """
+    try:
+        # 计算查询区间：从 signal_date 次日起取 5 天数据（找第一个交易日）
+        start = datetime.strptime(signal_date, "%Y-%m-%d") + timedelta(days=1)
+        end = start + timedelta(days=5)
+        start_str = start.strftime("%Y%m%d")
+        end_str = end.strftime("%Y%m%d")
+
+        # stock_zh_a_hist 需要不带前缀的纯代码
+        df = ak.stock_zh_a_hist(
+            symbol=stock_code,
+            period="daily",
+            start_date=start_str,
+            end_date=end_str,
+            adjust="qfq"
+        )
+        if df is None or df.empty:
+            return None
+
+        # 找到 signal_date 之后的第一个交易日（第一行就是）
+        row = df.iloc[0]
+        # 列名可能是中文 '开盘' 或英文 'open'，尝试处理
+        open_col = None
+        for col in df.columns:
+            if '开盘' in col or col.lower() == 'open':
+                open_col = col
+                break
+        if open_col is None:
+            return None
+
+        open_price = row.get(open_col)
+        if open_price is None or float(open_price) <= 0:
+            return None
+        return float(open_price)
     except Exception:
         return None
 

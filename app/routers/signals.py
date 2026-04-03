@@ -371,3 +371,103 @@ async def review_signal(signal_id: int, body: ReviewRequest = None):
         row = await cursor.fetchone()
         return dict(row)
 
+
+@router.post("/review-all")
+async def review_all_naked_signals():
+    """
+    全局复盘：
+    1. 找出所有信号日期 < 今日 的裸套信号
+    2. 对每条信号：
+       a. 如果 next_day_open_price 为空，从 akshare 历史日K 获取隔日开盘价（仅取一次）
+       b. 获取当前实时正股价格 → realtime_review_price
+       c. 计算 actual_profit（基于隔日开盘价）和 realtime_actual_profit（基于实时价格）
+    """
+    import asyncio
+    from datetime import date
+    from app.services.data_fetcher import get_stock_next_day_open, get_stock_price
+
+    today = date.today().isoformat()
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM signals WHERE trade_type = 'NAKED' AND date(signal_time) < ?",
+            (today,)
+        )
+        rows = await cursor.fetchall()
+
+    if not rows:
+        return {"updated": 0, "message": "无历史裸套信号需要复盘"}
+
+    updated = 0
+    for row in rows:
+        sig = dict(row)
+        signal_id = sig['id']
+
+        # 如果没有隔日开盘价，从历史获取（只取一次）
+        if sig.get('next_day_open_price') is None:
+            signal_date = sig['signal_time'][:10]
+            # stock_zh_a_hist 需要不带前缀的纯数字代码
+            pure_code = sig['stock_code'].lstrip('szshSZSH')
+            next_day_open = await asyncio.to_thread(
+                get_stock_next_day_open, pure_code, signal_date
+            )
+        else:
+            next_day_open = sig['next_day_open_price']
+
+        # 获取当前实时价格
+        pure_code = sig['stock_code'].lstrip('szshSZSH')
+        realtime_price = await asyncio.to_thread(get_stock_price, sig['stock_code'])
+
+        # 计算收益
+        buy_price = sig['target_buy_price'] or sig['cb_price'] or 0
+        target_shares = sig['target_shares'] or 0
+        conversion_price = sig['conversion_price'] or 1
+        cb_amount = buy_price * target_shares
+        shares_from_cb = (target_shares * 100.0) / conversion_price
+
+        updates = []
+        params = []
+
+        if next_day_open is not None:
+            sell_amount = next_day_open * shares_from_cb
+            cb_fee = cb_amount * 0.00006
+            stock_fee = sell_amount * 0.0001
+            actual_profit = sell_amount - cb_amount - cb_fee - stock_fee
+            actual_profit_rate = (actual_profit / cb_amount * 100) if cb_amount > 0 else 0
+            updates.extend([
+                "next_day_open_price = ?",
+                "actual_profit = ?",
+                "actual_profit_rate = ?"
+            ])
+            params.extend([next_day_open, round(actual_profit, 2), round(actual_profit_rate, 4)])
+
+        if realtime_price is not None:
+            realtime_sell_amount = realtime_price * shares_from_cb
+            realtime_cb_fee = cb_amount * 0.00006
+            realtime_stock_fee = realtime_sell_amount * 0.0001
+            realtime_actual_profit = realtime_sell_amount - cb_amount - realtime_cb_fee - realtime_stock_fee
+            realtime_actual_profit_rate = (realtime_actual_profit / cb_amount * 100) if cb_amount > 0 else 0
+            updates.extend([
+                "realtime_review_price = ?",
+                "realtime_actual_profit = ?",
+                "realtime_actual_profit_rate = ?"
+            ])
+            params.extend([realtime_price, round(realtime_actual_profit, 2), round(realtime_actual_profit_rate, 4)])
+
+        now = datetime.now().isoformat()
+        updates.append("reviewed_at = ?")
+        params.append(now)
+
+        if updates:
+            params.append(signal_id)
+            async with aiosqlite.connect(DB_PATH) as db:
+                await db.execute(
+                    f"UPDATE signals SET {', '.join(updates)} WHERE id = ?",
+                    params
+                )
+                await db.commit()
+            updated += 1
+
+    return {"updated": updated, "message": f"复盘完成，{updated} 条信号已更新"}
+

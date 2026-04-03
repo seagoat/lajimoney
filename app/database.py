@@ -105,6 +105,10 @@ async def init_db():
             await db.execute("ALTER TABLE signals ADD COLUMN realtime_review_price REAL")
         if 'reviewed_at' not in signal_cols:
             await db.execute("ALTER TABLE signals ADD COLUMN reviewed_at TEXT")
+        if 'realtime_actual_profit' not in signal_cols:
+            await db.execute("ALTER TABLE signals ADD COLUMN realtime_actual_profit REAL")
+        if 'realtime_actual_profit_rate' not in signal_cols:
+            await db.execute("ALTER TABLE signals ADD COLUMN realtime_actual_profit_rate REAL")
 
         await db.commit()
 

@@ -53,6 +53,8 @@ class SignalResponse(BaseModel):
     actual_profit_rate: Optional[float] = None
     realtime_review_price: Optional[float] = None
     reviewed_at: Optional[str] = None
+    realtime_actual_profit: Optional[float] = None
+    realtime_actual_profit_rate: Optional[float] = None
 
 
 class ReviewRequest(BaseModel):

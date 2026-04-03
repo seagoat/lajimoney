@@ -4,6 +4,7 @@
 <h1>套利信号记录</h1>
 
 <div class="card" style="margin-bottom: 12px; display: flex; align-items: center; gap: 10px;">
+    <button class="btn btn-primary" onclick="reviewAllNaked()">复盘全部裸套</button>
     <button class="btn btn-danger" onclick="deleteAll()">清空全部</button>
 </div>
 
@@ -27,11 +28,13 @@
                 <th data-sort="nextPrice">隔日开盘价</th>
                 <th data-sort="actualProfit">实际收益</th>
                 <th data-sort="realtimePrice">实时复盘价</th>
+                <th data-sort="realtimeActualProfit">实时实际收益</th>
+                <th data-sort="realtimeActualProfitRate">实时收益率</th>
                 <th>操作</th>
             </tr>
         </thead>
         <tbody id="signalsBody">
-            <tr><td colspan="17">加载中...</td></tr>
+            <tr><td colspan="19">加载中...</td></tr>
         </tbody>
     </table>
 </div>
@@ -149,9 +152,7 @@ async function loadSignals() {
         const isNaked = tradeType === 'NAKED';
         const hasNextDay = s.next_day_open_price != null;
         const actualProfitClass = s.actual_profit > 0 ? 'profit' : s.actual_profit < 0 ? 'loss' : '';
-        const actions = isNaked
-            ? `<button class="btn btn-primary btn-sm" onclick="reviewSignal(${s.id})">复盘</button> <button class="btn btn-danger btn-sm" onclick="deleteSignal(${s.id})">删除</button>`
-            : `<button class="btn btn-danger btn-sm" onclick="deleteSignal(${s.id})">删除</button>`;
+        const actions = `<button class="btn btn-danger btn-sm" onclick="deleteSignal(${s.id})">删除</button>`;
 
         return `<tr>
             <td>${s.signal_time ? s.signal_time.slice(0, 19) : '-'}</td>
@@ -170,6 +171,8 @@ async function loadSignals() {
             <td>${hasNextDay ? s.next_day_open_price.toFixed(2) : '-'}</td>
             <td class="${actualProfitClass}">${s.actual_profit != null ? s.actual_profit.toFixed(2) : '-'}</td>
             <td>${s.realtime_review_price ? s.realtime_review_price.toFixed(2) : '-'}</td>
+            <td class="${s.realtime_actual_profit > 0 ? 'profit' : s.realtime_actual_profit < 0 ? 'loss' : ''}">${s.realtime_actual_profit != null ? s.realtime_actual_profit.toFixed(2) : '-'}</td>
+            <td class="${s.realtime_actual_profit_rate > 0 ? 'profit' : s.realtime_actual_profit_rate < 0 ? 'loss' : ''}">${s.realtime_actual_profit_rate != null ? s.realtime_actual_profit_rate.toFixed(2) + '%' : '-'}</td>
             <td>${actions}</td>
         </tr>`;
     }).join('');
@@ -219,6 +222,14 @@ async function deleteSignal(id) {
 async function deleteAll() {
     if (!confirm('确认清空全部信号记录？此操作不可恢复。')) return;
     await fetch('/api/signals', { method: 'DELETE' });
+    loadSignals();
+}
+
+async function reviewAllNaked() {
+    if (!confirm('将对所有历史裸套信号进行复盘（获取真实隔日开盘价和实时价格），是否继续？')) return;
+    const res = await fetch('/api/signals/review-all', { method: 'POST' });
+    const result = await res.json();
+    alert(`复盘完成：${result.updated} 条信号已更新`);
     loadSignals();
 }
 
