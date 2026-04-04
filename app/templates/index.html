@@ -3,19 +3,19 @@
 {% block content %}
 <div class="stat-grid">
     <div class="stat-card">
-        <div class="stat-value">{{ overview.total_profit }}</div>
+        <div class="stat-value" id="stat-total-signals">{{ overview.total_profit }}</div>
         <div class="stat-label">历史信号总数</div>
     </div>
     <div class="stat-card">
-        <div class="stat-value">{{ overview.win_rate }}%</div>
+        <div class="stat-value" id="stat-win-rate">{{ overview.win_rate }}%</div>
         <div class="stat-label">历史胜率</div>
     </div>
     <div class="stat-card">
-        <div class="stat-value">{{ overview.total_trades }}</div>
+        <div class="stat-value" id="stat-today-signals">{{ overview.total_trades }}</div>
         <div class="stat-label">今日信号数</div>
     </div>
     <div class="stat-card">
-        <div class="stat-value">{{ overview.pending_count }}</div>
+        <div class="stat-value" id="stat-pending">{{ overview.pending_count }}</div>
         <div class="stat-label">待处理信号</div>
     </div>
 </div>
@@ -154,6 +154,23 @@ async function autoProcess() {
 }
 
 // 加载并显示当前设置
+async function refreshOverviewStats() {
+    try {
+        const res = await fetch('/api/summary/overview');
+        const s = await res.json();
+        const el = document.getElementById('stat-total-signals');
+        if (el) el.textContent = s.total_profit;
+        const el2 = document.getElementById('stat-win-rate');
+        if (el2) el2.textContent = s.win_rate + '%';
+        const el3 = document.getElementById('stat-today-signals');
+        if (el3) el3.textContent = s.total_trades;
+        const el4 = document.getElementById('stat-pending');
+        if (el4) el4.textContent = s.pending_count;
+    } catch (e) {
+        // ignore
+    }
+}
+
 async function loadCurrentSettings() {
     try {
         const res = await fetch('/api/settings');
@@ -218,6 +235,7 @@ function connectAutoScan() {
             window._newCbCodes = newCbCodes;
             renderOpportunityTable(data.all_scanned);
             applyFilters();
+            refreshOverviewStats();
         }
     });
 
