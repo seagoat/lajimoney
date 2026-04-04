@@ -103,13 +103,18 @@ def get_latest_result() -> Optional[dict]:
 
 async def wait_for_next_scan(timeout: int = 120) -> Optional[dict]:
     """等待下一次扫描完成，返回结果（供 SSE 接口调用）"""
-    try:
-        await asyncio.wait_for(_scan_done_event.wait(), timeout=timeout)
-        # 清空事件，等待下一次扫描
-        _scan_done_event.clear()
-        return latest_scan_result
-    except asyncio.TimeoutError:
-        return None
+    import time
+    waited = 0
+    interval = 1.0
+    while waited < timeout:
+        if _server_shutdown_event.is_set():
+            return None  # 服务器关闭，立即返回
+        if _scan_done_event.is_set():
+            _scan_done_event.clear()
+            return latest_scan_result
+        await asyncio.sleep(interval)
+        waited += interval
+    return None
 
 
 def update_scheduler_config(enabled: bool, interval: int):
@@ -122,3 +127,8 @@ def update_scheduler_config(enabled: bool, interval: int):
 def get_shutdown_event() -> asyncio.Event:
     """获取服务器关闭事件，供 SSE 接口等待"""
     return _server_shutdown_event
+
+
+def is_shutting_down() -> bool:
+    """服务器是否正在关闭"""
+    return _server_shutdown_event.is_set()
