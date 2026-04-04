@@ -181,6 +181,8 @@ async def _run_scan(scan_id: str, settings: dict):
                 scan_log_id = cursor.lastrowid
 
                 inserted = 0
+                new_signals = []
+                existing_signals = []
                 for sig in signals:
                     # 同一转债、相同目标价格、张数、正股价格 → 相同机会
                     cursor = await db.execute(
@@ -188,6 +190,7 @@ async def _run_scan(scan_id: str, settings: dict):
                         (sig['cb_code'], sig.get('target_buy_price'), sig.get('target_shares'), sig.get('stock_price'))
                     )
                     if await cursor.fetchone():
+                        existing_signals.append(sig)
                         continue
                     cursor = await db.execute(
                         """INSERT INTO signals
@@ -202,6 +205,7 @@ async def _run_scan(scan_id: str, settings: dict):
                          sig.get('trade_type', 'HEDGE'), sig.get('has_holdings', False) and 1 or 0)
                     )
                     inserted += 1
+                    new_signals.append(sig)
 
                 # 更新 scan_log 的实际信号数量
                 await db.execute(
@@ -219,6 +223,9 @@ async def _run_scan(scan_id: str, settings: dict):
         _scan_results[scan_id]["status"] = "done"
         _scan_results[scan_id]["signals_found"] = inserted
         _scan_results[scan_id]["signals"] = signals
+        _scan_results[scan_id]["new_signals"] = new_signals
+        _scan_results[scan_id]["existing_signals"] = existing_signals
+        _scan_results[scan_id]["all_scanned"] = _scan_results[scan_id]["all_scanned"]
         _scan_results[scan_id]["message"] = (
             f"扫描完成，发现 {inserted} 个新信号" if inserted > 0 else "无符合条件信号"
         )
@@ -486,13 +493,13 @@ async def auto_scan_sse():
         # 连接时如果已有最新结果，立即发送（避免首屏空白）
         initial = get_latest_result()
         if initial and initial.get("done"):
-            yield f"event: done\ndata: {json.dumps({'signals_found': initial.get('signals_found', 0), 'signals': initial.get('signals', []), 'all_scanned': initial.get('all_scanned', []), 'message': initial.get('message', '')}, ensure_ascii=False)}\n\n"
+            yield f"event: done\ndata: {json.dumps({'signals_found': initial.get('signals_found', 0), 'new_signals': initial.get('new_signals', []), 'existing_signals': initial.get('existing_signals', []), 'all_scanned': initial.get('all_scanned', []), 'message': initial.get('message', '')}, ensure_ascii=False)}\n\n"
 
         # 持续等待每次扫描完成并推送
         while True:
             result = await wait_for_next_scan(timeout=120)
             if result and result.get("done"):
-                yield f"event: done\ndata: {json.dumps({'signals_found': result.get('signals_found', 0), 'signals': result.get('signals', []), 'all_scanned': result.get('all_scanned', []), 'message': result.get('message', '')}, ensure_ascii=False)}\n\n"
+                yield f"event: done\ndata: {json.dumps({'signals_found': result.get('signals_found', 0), 'new_signals': result.get('new_signals', []), 'existing_signals': result.get('existing_signals', []), 'all_scanned': result.get('all_scanned', []), 'message': result.get('message', '')}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_generator(),

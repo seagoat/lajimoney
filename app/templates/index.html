@@ -179,32 +179,43 @@ function connectAutoScan() {
 
     autoScanSource.addEventListener('done', function(e) {
         const data = JSON.parse(e.data);
-        // 如果正在进行手动扫描，跳过自动更新（但不跳日志）
         const logEl = document.getElementById('autoScanLog');
         const now = new Date().toLocaleTimeString('zh-CN');
-        const oppCount = (data.all_scanned || []).filter(s => s.status === 'signal_found').length;
+        const newCount = (data.new_signals || []).length;
+        const existCount = (data.existing_signals || []).length;
+        const totalCount = (data.all_scanned || []).filter(s => s.status === 'signal_found').length;
+
         if (logEl) {
             const line = document.createElement('div');
             line.style.padding = '2px 0';
             line.style.borderBottom = '1px solid #f0f0f0';
-            if (oppCount > 0) {
-                line.style.color = '#27ae60';
+            let msg = `[${now}] 扫描完成：` + totalCount + ' 个机会';
+            if (newCount > 0) {
+                msg += ` | ${newCount} 个新信号`;
+                line.style.color = '#e74c3c';
+                line.style.fontWeight = 'bold';
             }
-            line.textContent = `[${now}] 自动扫描完成：${oppCount} 个机会`;
+            if (existCount > 0) {
+                msg += ` | ${existCount} 个重复`;
+                if (newCount === 0) line.style.color = '#888';
+            }
+            line.textContent = msg;
             logEl.appendChild(line);
-            // 只保留最近 20 条
             while (logEl.children.length > 20) {
                 logEl.removeChild(logEl.firstChild);
             }
             logEl.scrollTop = logEl.scrollHeight;
         }
+
         // 如果正在进行手动扫描，跳过页面更新
         if (manualScanInProgress) {
             return;
         }
-        // 更新页面结果
+        // 更新页面结果（标记新信号）
         if (data.all_scanned && data.all_scanned.length > 0) {
+            const newCbCodes = new Set((data.new_signals || []).map(s => s.cb_code));
             window._allScanned = data.all_scanned;
+            window._newCbCodes = newCbCodes;
             renderOpportunityTable(data.all_scanned);
             applyFilters();
         }
@@ -305,14 +316,16 @@ function renderOpportunityTable(data) {
         const profitRate = cost > 0 ? (profit / cost * 100).toFixed(2) + '%' : '-';
         const premium = sig.premium_rate != null ? sig.premium_rate.toFixed(2) + '%' : '-';
         const discount = sig.discount_space != null ? sig.discount_space.toFixed(2) : '-';
+        const isNew = window._newCbCodes ? window._newCbCodes.has(sig.cb_code) : false;
+        const newBadge = isNew ? '<span style="background:#e74c3c;color:#fff;padding:1px 4px;border-radius:3px;font-size:11px;margin-right:4px;">新</span>' : '';
         const cbInfo = sig.cb_name ? `${sig.cb_name} (${sig.cb_code})` : (sig.cb_code || '-');
         const stockInfo = sig.stock_name ? `${sig.stock_name} (${sig.stock_code})` : (sig.stock_code || '-');
         const isProfit = profit >= 0;
-        const rowStyle = isSignal ? '' : 'opacity:0.6;';
+        const rowStyle = isSignal ? (isNew ? 'background:#fff5f5;' : '') : 'opacity:0.6;';
         const tradeType = isSignal ? (sig.trade_type || 'HEDGE') : 'none';
 
-        tbody.innerHTML += `<tr data-strategy="${tradeType}" data-premium="${sig.premium_rate != null ? sig.premium_rate : ''}" data-holdings="${sig.has_holdings ? 'yes' : 'no'}" style="${rowStyle}">
-            <td>${cbInfo}</td>
+        tbody.innerHTML += `<tr data-strategy="${tradeType}" data-premium="${sig.premium_rate != null ? sig.premium_rate : ''}" data-holdings="${sig.has_holdings ? 'yes' : 'no'}" data-new="${isNew ? 'yes' : 'no'}" style="${rowStyle}">
+            <td>${newBadge}${cbInfo}</td>
             <td>${stockInfo}</td>
             <td>${holdingsBadge}</td>
             <td>${strategyLabel}</td>
