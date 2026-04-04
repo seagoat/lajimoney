@@ -22,6 +22,9 @@ _scan_done_event: asyncio.Event = asyncio.Event()
 # 是否启用自动扫描
 _scan_enabled: bool = True
 
+# 定时器句柄（用于关闭时取消）
+_timer_handle: Optional[asyncio.TimerHandle] = None
+
 
 async def _do_scan():
     """执行一次扫描，结果写入 latest_scan_result"""
@@ -57,10 +60,12 @@ async def _do_scan():
 
 async def _schedule_next(interval: int):
     """安排下一次扫描"""
-    global _scan_interval
+    global _scan_interval, _timer_handle, _started
+    if not _started:
+        return
     _scan_interval = interval
     loop = asyncio.get_running_loop()
-    loop.call_later(interval, lambda: asyncio.create_task(_run_scheduler_tick()))
+    _timer_handle = loop.call_later(interval, lambda: asyncio.create_task(_run_scheduler_tick()))
 
 
 async def _run_scheduler_tick():
@@ -80,8 +85,11 @@ async def start_scheduler(interval: int = 5):
 
 async def stop_scheduler():
     """停止后台定时扫描（不取消正在进行的扫描）"""
-    global _started
+    global _started, _timer_handle
     _started = False
+    if _timer_handle:
+        _timer_handle.cancel()
+        _timer_handle = None
 
 
 def get_latest_result() -> Optional[dict]:
