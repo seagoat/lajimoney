@@ -112,3 +112,39 @@ async def update_settings(update: SettingsUpdate):
     return await get_settings()
 
 
+@router.get("/margin-settings")
+async def get_margin_settings():
+    """获取券商保证金设置"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT key, value FROM settings")
+        rows = await cursor.fetchall()
+        settings = {r['key']: r['value'] for r in rows}
+        return {
+            "broker_name": settings.get("broker_name", ""),
+            "margin_ratio": float(settings.get("margin_ratio", "0.5")),
+            "daily_interest_rate": float(settings.get("daily_interest_rate", "0.00022")),
+            "force_liquidation_ratio": float(settings.get("force_liquidation_ratio", "1.3")),
+        }
+
+
+@router.put("/margin-settings")
+async def update_margin_settings(body: dict):
+    """更新券商保证金设置"""
+    now = datetime.now().isoformat()
+    fields = {
+        "broker_name": str(body.get("broker_name", "默认券商")),
+        "margin_ratio": str(body.get("margin_ratio", "0.5")),
+        "daily_interest_rate": str(body.get("daily_interest_rate", "0.00022")),
+        "force_liquidation_ratio": str(body.get("force_liquidation_ratio", "1.3")),
+    }
+    async with aiosqlite.connect(DB_PATH) as db:
+        for key, value in fields.items():
+            await db.execute(
+                "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+                (key, value, now)
+            )
+        await db.commit()
+    return {"message": "保证金设置已保存"}
+
+
