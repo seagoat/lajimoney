@@ -25,6 +25,7 @@
     <p id="currentSettings" style="margin-bottom:8px;color:#888;font-size:13px;">
         加载中...
     </p>
+    <p id="autoUpdateStatus" style="margin-bottom:8px;color:#27ae60;font-size:13px;display:none;"></p>
     <button id="scanBtn" class="btn btn-primary" onclick="triggerScan()"
             style="margin-top: 5px;">手动触发扫描</button>
     <button id="reviewAllBtn" class="btn btn-warning" onclick="reviewAllNaked()"
@@ -50,6 +51,9 @@
 <script>
 // 表格排序功能
 let sortState = {};
+let manualScanInProgress = false;
+let autoScanSource = null;
+let lastAutoUpdateTime = null;
 
 function makeSortable(tableId) {
     sortState[tableId] = { column: null, direction: 'asc' };
@@ -162,6 +166,45 @@ async function loadCurrentSettings() {
     }
 }
 loadCurrentSettings();
+connectAutoScan();
+
+// 连接自动扫描 SSE
+function connectAutoScan() {
+    if (autoScanSource) {
+        autoScanSource.close();
+    }
+    autoScanSource = new EventSource('/api/signals/auto-scan-sse');
+
+    autoScanSource.addEventListener('done', function(e) {
+        const data = JSON.parse(e.data);
+        // 如果正在进行手动扫描，跳过自动更新
+        if (manualScanInProgress) {
+            return;
+        }
+        // 只在有结果时更新
+        if (data.all_scanned && data.all_scanned.length > 0) {
+            // 保存最新结果
+            window._allScanned = data.all_scanned;
+            // 渲染结果（同手动扫描逻辑）
+            renderOpportunityTable(data.all_scanned);
+            applyFilters();
+            // 显示自动更新提示
+            const statusEl = document.getElementById('autoUpdateStatus');
+            if (statusEl) {
+                const now = new Date().toLocaleTimeString('zh-CN');
+                statusEl.textContent = `[${now}] 自动更新：发现 ${data.signals_found} 个机会`;
+                statusEl.style.display = 'block';
+                setTimeout(() => { statusEl.style.display = 'none'; }, 3000);
+            }
+        }
+    });
+
+    autoScanSource.onerror = function() {
+        autoScanSource.close();
+        // 5秒后自动重连
+        setTimeout(connectAutoScan, 5000);
+    };
+}
 
 function log(message, type) {
     const container = document.getElementById('logContainer');
@@ -312,6 +355,7 @@ function triggerScan(skipConfirm) {
         currentEventSource.close();
     }
     if (!skipConfirm && !confirm('确定要触发一次扫描吗？')) return;
+    manualScanInProgress = true;
 
     const btn = document.getElementById('scanBtn');
     const progressDiv = document.getElementById('scanProgress');
@@ -356,6 +400,7 @@ function triggerScan(skipConfirm) {
 
     es.addEventListener('done', function(e) {
         isDone = true;
+        manualScanInProgress = false;
         const data = JSON.parse(e.data);
         finalResult = data;
         progressFill.style.width = '100%';
@@ -448,6 +493,7 @@ function triggerScan(skipConfirm) {
         if (isDone) return;
         es.close();
         currentEventSource = null;
+        manualScanInProgress = false;
         btn.disabled = false;
         btn.textContent = '手动触发扫描';
         statusDiv.textContent = '连接中断';
@@ -460,6 +506,7 @@ function triggerScan(skipConfirm) {
             log('扫描超时，强制结束', 'error');
             es.close();
             currentEventSource = null;
+            manualScanInProgress = false;
             btn.disabled = false;
             btn.textContent = '手动触发扫描';
         }

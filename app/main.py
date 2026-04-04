@@ -47,3 +47,14 @@ async def settings_page():
 @app.on_event("startup")
 async def startup():
     await init_db()
+    # 启动后台定时扫描（从数据库读取间隔）
+    from app.routers.settings import get_settings
+    s = await get_settings()
+    from app.services.scheduler import start_scheduler
+    await start_scheduler(s.get("scan_interval", 5))
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    from app.services.scheduler import stop_scheduler
+    await stop_scheduler()

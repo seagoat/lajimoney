@@ -119,6 +119,7 @@ async def init_db():
             ('cb_broker_fee', '0.00006'),
             ('naked_discount_threshold', '-2.0'),
             ('naked_enabled', 'true'),
+            ('scan_interval', '5'),
         ]
         for key, value in new_settings:
             await db.execute(

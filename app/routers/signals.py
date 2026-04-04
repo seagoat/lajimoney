@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse
 from typing import Optional
 import aiosqlite
 import json
+import asyncio
 from datetime import datetime
 from app.models import SignalResponse, ReviewRequest
 from app.config import DB_PATH
@@ -470,4 +471,36 @@ async def review_all_naked_signals():
             updated += 1
 
     return {"updated": updated, "message": f"复盘完成，{updated} 条信号已更新"}
+
+
+@router.get("/auto-scan-sse")
+async def auto_scan_sse():
+    """
+    SSE 流：推送最新扫描结果（定时扫描触发后推送一次）
+    前端打开页面时连接，收到结果后继续等待下一次推送
+    """
+    async def event_generator():
+        from app.services.scheduler import get_latest_result
+
+        client_done = asyncio.Event()
+
+        # 等待直到有结果（最多等 scan_interval 秒后超时）
+        for _ in range(300):
+            await asyncio.sleep(1)
+            result = get_latest_result()
+            if result and result.get("done"):
+                yield f"event: done\ndata: {json.dumps({'signals_found': result.get('signals_found', 0), 'signals': result.get('signals', []), 'all_scanned': result.get('all_scanned', []), 'message': result.get('message', '')}, ensure_ascii=False)}\n\n"
+                # 继续等待下一次扫描结果
+                continue
+        # 超时后发送空结果保持连接
+        yield f"event: done\ndata: {json.dumps({'signals_found': 0, 'signals': [], 'all_scanned': [], 'message': '等待扫描结果'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        }
+    )
 

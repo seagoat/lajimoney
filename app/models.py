@@ -113,6 +113,7 @@ class SettingsResponse(BaseModel):
     short_enabled: bool
     short_max_fund: float  # 融券模式单次最大资金（元）
     naked_max_fund: float  # 裸套模式单次最大资金（元）
+    scan_interval: int = 5  # 自动扫描间隔（秒）
 
 
 class SettingsUpdate(BaseModel):
@@ -127,3 +128,4 @@ class SettingsUpdate(BaseModel):
     short_enabled: Optional[bool] = None
     short_max_fund: Optional[float] = None
     naked_max_fund: Optional[float] = None
+    scan_interval: Optional[int] = None

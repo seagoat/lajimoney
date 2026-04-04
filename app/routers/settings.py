@@ -26,6 +26,7 @@ async def get_settings():
             "short_enabled": settings.get("short_enabled", "false") == "true",
             "short_max_fund": float(settings.get("short_max_fund", "100000")),
             "naked_max_fund": float(settings.get("naked_max_fund", "100000")),
+            "scan_interval": int(settings.get("scan_interval", "5")),
         }
 
 
@@ -89,6 +90,11 @@ async def update_settings(update: SettingsUpdate):
             await db.execute(
                 "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
                 ("naked_max_fund", str(update.naked_max_fund), now)
+            )
+        if update.scan_interval is not None:
+            await db.execute(
+                "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+                ("scan_interval", str(update.scan_interval), now)
             )
         await db.commit()
     return await get_settings()

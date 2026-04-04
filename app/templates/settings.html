@@ -36,6 +36,15 @@
             </small>
         </div>
 
+        <div class="form-group">
+            <label>自动扫描间隔（秒）</label>
+            <input type="number" name="scan_interval" id="scan_interval"
+                   min="1" max="300" value="5" required>
+            <small style="color:#888;display:block;margin-top:4px;">
+                服务端后台自动扫描的间隔，默认 5 秒（1-300 秒）
+            </small>
+        </div>
+
         <div class="card" style="margin-top: 20px;">
             <h2>交易成本设置</h2>
             <div class="form-group">
@@ -177,6 +186,7 @@ async function loadSettings() {
     document.getElementById('short_enabled').checked = s.short_enabled;
     document.getElementById('short_max_fund').value = s.short_max_fund || 100000;
     document.getElementById('naked_max_fund').value = s.naked_max_fund || 100000;
+    document.getElementById('scan_interval').value = s.scan_interval || 5;
 
     // 加载券商保证金设置
     const marginRes = await fetch('/api/settings/margin-settings');
@@ -204,6 +214,7 @@ document.getElementById('settingsForm').onsubmit = async (e) => {
         short_enabled: form.get('short_enabled') === 'on',
         short_max_fund: parseFloat(form.get('short_max_fund') || '100000'),
         naked_max_fund: parseFloat(form.get('naked_max_fund') || '100000'),
+        scan_interval: parseInt(form.get('scan_interval') || '5'),
     };
     const marginBody = {
         broker_name: form.get('broker_name') || '默认券商',

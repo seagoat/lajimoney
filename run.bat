@@ -5,7 +5,9 @@ echo [0/4] Checking uv...
 where uv >nul 2>&1
 if %errorlevel% neq 0 (
     echo Installing uv via PowerShell...
-    powershell -ExecutionPolicy ByPass -Command "Invoke-Expression (Invoke-WebRequest https://astral.sh/uv/install.ps1 -UseBasicParsing).Content"
+    powershell -ExecutionPolicy ByPass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri https://astral.sh/uv/install.ps1 -OutFile $env:TEMP\uv-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\uv-install.ps1; Remove-Item $env:TEMP\uv-install.ps1 -Force"
+    set "PATH=%USERPROFILE%\.local\bin;%PATH%"
+    where uv >nul 2>&1
     if %errorlevel% neq 0 (
         echo PowerShell install failed, trying curl...
         curl -Lo "%TEMP%\uv-installer.exe" "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc-installer.exe"
@@ -13,13 +15,13 @@ if %errorlevel% neq 0 (
             "%TEMP%\uv-installer.exe" /S
             del "%TEMP%\uv-installer.exe"
         )
-    )
-    set "PATH=%USERPROFILE%\.local\bin;%PATH%"
-    where uv >nul 2>&1
-    if %errorlevel% neq 0 (
-        echo uv install failed.
-        pause
-        exit /b 1
+        set "PATH=%USERPROFILE%\.local\bin;%PATH%"
+        where uv >nul 2>&1
+        if %errorlevel% neq 0 (
+            echo uv install failed.
+            pause
+            exit /b 1
+        )
     )
     echo uv installed!
 )
