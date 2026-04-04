@@ -25,6 +25,9 @@ _scan_enabled: bool = True
 # 定时器句柄（用于关闭时取消）
 _timer_handle: Optional[asyncio.TimerHandle] = None
 
+# 服务器关闭信号（通知 SSE 连接关闭）
+_server_shutdown_event: asyncio.Event = asyncio.Event()
+
 
 async def _do_scan():
     """执行一次扫描，结果写入 latest_scan_result"""
@@ -87,6 +90,7 @@ async def stop_scheduler():
     """停止后台定时扫描（不取消正在进行的扫描）"""
     global _started, _timer_handle
     _started = False
+    _server_shutdown_event.set()  # 通知所有 SSE 连接关闭
     if _timer_handle:
         _timer_handle.cancel()
         _timer_handle = None
@@ -113,3 +117,8 @@ def update_scheduler_config(enabled: bool, interval: int):
     global _scan_enabled, _scan_interval
     _scan_enabled = enabled
     _scan_interval = interval
+
+
+def get_shutdown_event() -> asyncio.Event:
+    """获取服务器关闭事件，供 SSE 接口等待"""
+    return _server_shutdown_event

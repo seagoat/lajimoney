@@ -497,7 +497,18 @@ async def auto_scan_sse():
 
         # 持续等待每次扫描完成并推送
         while True:
-            result = await wait_for_next_scan(timeout=120)
+            from app.services.scheduler import get_shutdown_event
+            shutdown_evt = get_shutdown_event()
+            # 等待扫描完成或服务器关闭信号
+            done, _ = await asyncio.wait(
+                [wait_for_next_scan(timeout=120), shutdown_evt.wait()],
+                return_when=asyncio.FIRST_COMPLETED
+            )
+            if shutdown_evt.is_set():
+                break
+            for t in done:
+                t.result()  # 触发异常（如有）
+            result = get_latest_result()
             if result and result.get("done"):
                 yield f"event: done\ndata: {json.dumps({'signals_found': result.get('signals_found', 0), 'new_signals': result.get('new_signals', []), 'existing_signals': result.get('existing_signals', []), 'all_scanned': result.get('all_scanned', []), 'message': result.get('message', '')}, ensure_ascii=False)}\n\n"
 

@@ -166,7 +166,7 @@ async function autoProcess() {
 // 加载并显示当前设置
 async function refreshOverviewStats() {
     try {
-        const res = await fetch('/api/summary/overview');
+        const res = await fetch('/overview');
         const s = await res.json();
         const el = document.getElementById('stat-total-signals');
         if (el) el.textContent = s.total_profit;
