@@ -120,6 +120,7 @@ async def init_db():
             ('naked_discount_threshold', '-2.0'),
             ('naked_enabled', 'true'),
             ('scan_interval', '5'),
+            ('auto_scan_enabled', 'true'),
         ]
         for key, value in new_settings:
             await db.execute(

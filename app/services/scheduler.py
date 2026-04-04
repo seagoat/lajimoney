@@ -16,18 +16,26 @@ _started: bool = False
 # 扫描中的标志（防止并发）
 _scan_in_progress: bool = False
 
+# 扫描完成信号（供 SSE 等待）
+_scan_done_event: asyncio.Event = asyncio.Event()
+
+# 是否启用自动扫描
+_scan_enabled: bool = True
+
 
 async def _do_scan():
     """执行一次扫描，结果写入 latest_scan_result"""
-    global latest_scan_result, _scan_in_progress
+    global latest_scan_result, _scan_in_progress, _scan_enabled
+    if not _scan_enabled:
+        return
     if _scan_in_progress:
         return
     _scan_in_progress = True
+    _scan_done_event.clear()  # 清空上一次的完成信号
 
     try:
         from app.routers.signals import _run_scan, get_settings, _scan_results
         from datetime import datetime
-        import asyncio
 
         scan_id = f"auto_{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
         settings = await get_settings()
@@ -41,6 +49,7 @@ async def _do_scan():
             result = _scan_results.get(scan_id)
             if result and result.get("done"):
                 latest_scan_result = result
+                _scan_done_event.set()
                 break
     finally:
         _scan_in_progress = False
@@ -78,3 +87,21 @@ async def stop_scheduler():
 def get_latest_result() -> Optional[dict]:
     """获取最新扫描结果（供 SSE 接口调用）"""
     return latest_scan_result
+
+
+async def wait_for_next_scan(timeout: int = 120) -> Optional[dict]:
+    """等待下一次扫描完成，返回结果（供 SSE 接口调用）"""
+    try:
+        await asyncio.wait_for(_scan_done_event.wait(), timeout=timeout)
+        # 清空事件，等待下一次扫描
+        _scan_done_event.clear()
+        return latest_scan_result
+    except asyncio.TimeoutError:
+        return None
+
+
+def update_scheduler_config(enabled: bool, interval: int):
+    """更新调度器配置（被 settings.py 调用）"""
+    global _scan_enabled, _scan_interval
+    _scan_enabled = enabled
+    _scan_interval = interval

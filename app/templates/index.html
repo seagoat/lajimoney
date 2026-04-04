@@ -25,13 +25,13 @@
     <p id="currentSettings" style="margin-bottom:8px;color:#888;font-size:13px;">
         加载中...
     </p>
-    <p id="autoUpdateStatus" style="margin-bottom:8px;color:#27ae60;font-size:13px;display:none;"></p>
     <button id="scanBtn" class="btn btn-primary" onclick="triggerScan()"
             style="margin-top: 5px;">手动触发扫描</button>
     <button id="reviewAllBtn" class="btn btn-warning" onclick="reviewAllNaked()"
             style="margin-top: 5px; margin-left: 8px;">复盘所有裸套</button>
     <button id="autoProcessBtn" class="btn btn-success" onclick="autoProcess()"
             style="margin-top: 5px; margin-left: 8px;">每日自动处理</button>
+    <div id="autoScanLog" style="margin-top: 12px; max-height: 120px; overflow-y: auto; font-family: monospace; font-size: 12px; color:#888; display:none;"></div>
     <div id="scanProgress" style="margin-top: 15px; display: none;">
         <div id="scanStatus" style="margin-bottom: 8px; color: #555; font-size: 14px;"></div>
         <div id="progressBar" style="height: 6px; background: #eee; border-radius: 3px;">
@@ -174,34 +174,52 @@ function connectAutoScan() {
         autoScanSource.close();
     }
     autoScanSource = new EventSource('/api/signals/auto-scan-sse');
+    const autoLog = document.getElementById('autoScanLog');
+    if (autoLog) autoLog.style.display = 'block';
 
     autoScanSource.addEventListener('done', function(e) {
         const data = JSON.parse(e.data);
-        // 如果正在进行手动扫描，跳过自动更新
+        // 如果正在进行手动扫描，跳过自动更新（但不跳日志）
+        const logEl = document.getElementById('autoScanLog');
+        const now = new Date().toLocaleTimeString('zh-CN');
+        const oppCount = (data.all_scanned || []).filter(s => s.status === 'signal_found').length;
+        if (logEl) {
+            const line = document.createElement('div');
+            line.style.padding = '2px 0';
+            line.style.borderBottom = '1px solid #f0f0f0';
+            if (oppCount > 0) {
+                line.style.color = '#27ae60';
+            }
+            line.textContent = `[${now}] 自动扫描完成：${oppCount} 个机会`;
+            logEl.appendChild(line);
+            // 只保留最近 20 条
+            while (logEl.children.length > 20) {
+                logEl.removeChild(logEl.firstChild);
+            }
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+        // 如果正在进行手动扫描，跳过页面更新
         if (manualScanInProgress) {
             return;
         }
-        // 只在有结果时更新
+        // 更新页面结果
         if (data.all_scanned && data.all_scanned.length > 0) {
-            // 保存最新结果
             window._allScanned = data.all_scanned;
-            // 渲染结果（同手动扫描逻辑）
             renderOpportunityTable(data.all_scanned);
             applyFilters();
-            // 显示自动更新提示
-            const statusEl = document.getElementById('autoUpdateStatus');
-            if (statusEl) {
-                const now = new Date().toLocaleTimeString('zh-CN');
-                statusEl.textContent = `[${now}] 自动更新：发现 ${data.signals_found} 个机会`;
-                statusEl.style.display = 'block';
-                setTimeout(() => { statusEl.style.display = 'none'; }, 3000);
-            }
         }
     });
 
     autoScanSource.onerror = function() {
         autoScanSource.close();
-        // 5秒后自动重连
+        const logEl = document.getElementById('autoScanLog');
+        if (logEl) {
+            const line = document.createElement('div');
+            line.style.color = '#e74c3c';
+            line.style.padding = '2px 0';
+            line.textContent = `[${new Date().toLocaleTimeString('zh-CN')}] 自动扫描连接断开，5秒后重连...`;
+            logEl.appendChild(line);
+        }
         setTimeout(connectAutoScan, 5000);
     };
 }

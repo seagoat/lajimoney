@@ -480,20 +480,19 @@ async def auto_scan_sse():
     前端打开页面时连接，收到结果后继续等待下一次推送
     """
     async def event_generator():
-        from app.services.scheduler import get_latest_result
+        from app.services.scheduler import wait_for_next_scan, get_latest_result, latest_scan_result
+        import asyncio
 
-        client_done = asyncio.Event()
+        # 连接时如果已有最新结果，立即发送（避免首屏空白）
+        initial = get_latest_result()
+        if initial and initial.get("done"):
+            yield f"event: done\ndata: {json.dumps({'signals_found': initial.get('signals_found', 0), 'signals': initial.get('signals', []), 'all_scanned': initial.get('all_scanned', []), 'message': initial.get('message', '')}, ensure_ascii=False)}\n\n"
 
-        # 等待直到有结果（最多等 scan_interval 秒后超时）
-        for _ in range(300):
-            await asyncio.sleep(1)
-            result = get_latest_result()
+        # 持续等待每次扫描完成并推送
+        while True:
+            result = await wait_for_next_scan(timeout=120)
             if result and result.get("done"):
                 yield f"event: done\ndata: {json.dumps({'signals_found': result.get('signals_found', 0), 'signals': result.get('signals', []), 'all_scanned': result.get('all_scanned', []), 'message': result.get('message', '')}, ensure_ascii=False)}\n\n"
-                # 继续等待下一次扫描结果
-                continue
-        # 超时后发送空结果保持连接
-        yield f"event: done\ndata: {json.dumps({'signals_found': 0, 'signals': [], 'all_scanned': [], 'message': '等待扫描结果'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_generator(),

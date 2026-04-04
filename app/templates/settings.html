@@ -45,6 +45,17 @@
             </small>
         </div>
 
+        <div class="form-group">
+            <label>
+                <input type="checkbox" name="auto_scan_enabled" id="auto_scan_enabled"
+                       style="width: auto; margin-right: 8px;">
+                开启自动扫描
+            </label>
+            <small style="color:#888;display:block;margin-top:4px;">
+                开启后，服务器每间隔 N 秒自动执行一次扫描，并通过 SSE 实时推送结果到页面
+            </small>
+        </div>
+
         <div class="card" style="margin-top: 20px;">
             <h2>交易成本设置</h2>
             <div class="form-group">
@@ -187,6 +198,7 @@ async function loadSettings() {
     document.getElementById('short_max_fund').value = s.short_max_fund || 100000;
     document.getElementById('naked_max_fund').value = s.naked_max_fund || 100000;
     document.getElementById('scan_interval').value = s.scan_interval || 5;
+    document.getElementById('auto_scan_enabled').checked = s.auto_scan_enabled !== false;
 
     // 加载券商保证金设置
     const marginRes = await fetch('/api/settings/margin-settings');
@@ -215,6 +227,7 @@ document.getElementById('settingsForm').onsubmit = async (e) => {
         short_max_fund: parseFloat(form.get('short_max_fund') || '100000'),
         naked_max_fund: parseFloat(form.get('naked_max_fund') || '100000'),
         scan_interval: parseInt(form.get('scan_interval') || '5'),
+        auto_scan_enabled: form.get('auto_scan_enabled') === 'on',
     };
     const marginBody = {
         broker_name: form.get('broker_name') || '默认券商',
