@@ -31,6 +31,16 @@
             style="margin-top: 5px; margin-left: 8px;">复盘所有裸套</button>
     <button id="autoProcessBtn" class="btn btn-success" onclick="autoProcess()"
             style="margin-top: 5px; margin-left: 8px;">每日自动处理</button>
+
+    <div id="unreadPanel" style="margin-top: 12px; display: none;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <span id="unreadBadge" style="background:#e74c3c;color:#fff;padding:2px 8px;border-radius:10px;font-size:12px;display:none;"></span>
+            <span style="font-size:13px;color:#555;font-weight:bold;">未查看机会</span>
+            <button onclick="markAllRead()" style="font-size:11px;padding:2px 8px;cursor:pointer;">全部标为已读</button>
+        </div>
+        <div id="unreadList" style="border:1px solid #eee;border-radius:6px;overflow:hidden;"></div>
+    </div>
+
     <div id="autoScanLog" style="margin-top: 12px; max-height: 120px; overflow-y: auto; font-family: monospace; font-size: 12px; color:#888; display:none;"></div>
     <div id="scanProgress" style="margin-top: 15px; display: none;">
         <div id="scanStatus" style="margin-bottom: 8px; color: #555; font-size: 14px;"></div>
@@ -185,6 +195,105 @@ async function loadCurrentSettings() {
 loadCurrentSettings();
 connectAutoScan();
 
+// ---- 未读机会管理 ----
+window._unreadSignals = [];
+
+function addUnreadSignals(signals) {
+    for (const sig of signals) {
+        const key = sig.cb_code + '|' + (sig.stock_price || '');
+        const exists = window._unreadSignals.find(s => s.cb_code + '|' + (s.stock_price || '') === key);
+        if (!exists) {
+            window._unreadSignals.push({...sig, _key: key});
+        }
+    }
+    renderUnreadList();
+}
+
+function renderUnreadList() {
+    const panel = document.getElementById('unreadPanel');
+    const badge = document.getElementById('unreadBadge');
+    const list = document.getElementById('unreadList');
+    if (!panel || !badge || !list) return;
+
+    if (window._unreadSignals.length === 0) {
+        panel.style.display = 'none';
+        return;
+    }
+
+    panel.style.display = 'block';
+    badge.style.display = 'inline-block';
+    badge.textContent = window._unreadSignals.length;
+
+    list.innerHTML = '';
+    for (const sig of window._unreadSignals) {
+        const div = document.createElement('div');
+        div.style.cssText = 'padding:8px 10px;border-bottom:1px solid #f5f5f5;cursor:pointer;';
+        div.style.background = '#fff5f5';
+
+        const premium = sig.premium_rate != null ? sig.premium_rate.toFixed(2) + '%' : '-';
+        const discount = sig.discount_space != null ? sig.discount_space.toFixed(2) : '-';
+        const buyPrice = sig.target_buy_price || sig.cb_price || 0;
+        const shares = sig.target_shares || 0;
+        const strategy = sig.trade_type || 'HEDGE';
+        const strategyLabel = strategy === 'HEDGE' ? '对冲' : strategy === 'SHORT' ? '融券' : '裸套';
+        const holdingsBadge = sig.has_holdings ? '<span style="background:#27ae60;color:#fff;padding:1px 4px;border-radius:3px;font-size:10px;margin-right:4px;">有底仓</span>' : '';
+
+        div.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                    <span style="font-weight:bold;color:#333;">${sig.cb_name || sig.cb_code}</span>
+                    <span style="color:#888;font-size:12px;margin-left:6px;">${sig.stock_name || sig.stock_code}</span>
+                    <span style="font-size:11px;margin-left:4px;">${holdingsBadge}</span>
+                </div>
+                <div style="text-align:right;">
+                    <span style="background:${sig.premium_rate < 0 ? '#27ae60' : '#e74c3c'};color:#fff;padding:1px 5px;border-radius:3px;font-size:11px;">${strategyLabel}</span>
+                    <span style="color:#e74c3c;font-weight:bold;margin-left:6px;">溢价 ${premium}</span>
+                </div>
+            </div>
+            <div style="font-size:11px;color:#888;margin-top:4px;">
+                买入 <span style="color:#333;font-weight:bold;">${buyPrice.toFixed(2)}元</span> × <span style="color:#333;font-weight:bold;">${shares}张</span>
+                | 折价空间 <span style="color:#27ae60;">${discount}</span>
+                | 预估收益 <span style="color:#e74c3c;font-weight:bold;">${estimateProfit(sig)}元</span>
+                <span style="float:right;color:#aaa;cursor:pointer;" onclick="event.stopPropagation();markRead('${sig.cb_code}','${sig.stock_price || ''}')">[标为已读]</span>
+            </div>
+        `;
+        div.onclick = () => markRead(sig.cb_code, sig.stock_price || '');
+        list.appendChild(div);
+    }
+}
+
+function estimateProfit(sig) {
+    const buyPrice = sig.target_buy_price || sig.cb_price || 0;
+    const shares = sig.target_shares || 0;
+    const conversionPrice = sig.conversion_price || 1;
+    const stockPrice = sig.stock_price || 0;
+    const strategy = sig.trade_type || 'HEDGE';
+    const cbAmount = buyPrice * shares;
+    const sharesFromCb = (shares * 100.0) / conversionPrice;
+    if (strategy === 'HEDGE') {
+        const sellAmount = stockPrice * sharesFromCb;
+        return (sellAmount - cbAmount - cbAmount * 0.00006 * 2 - sellAmount * 0.0001 - sellAmount * 0.0015).toFixed(2);
+    } else if (strategy === 'SHORT') {
+        const sellAmount = stockPrice * sharesFromCb;
+        return (sellAmount - cbAmount - cbAmount * 0.00006 - sellAmount * 0.0001 - sellAmount * 0.00022).toFixed(2);
+    } else {
+        const sellAmount = stockPrice * sharesFromCb;
+        return (sellAmount - cbAmount - cbAmount * 0.00006 - sellAmount * 0.0001).toFixed(2);
+    }
+}
+
+function markRead(cbCode, stockPrice) {
+    window._unreadSignals = window._unreadSignals.filter(
+        s => !(s.cb_code === cbCode && (s.stock_price || '') === (stockPrice || ''))
+    );
+    renderUnreadList();
+}
+
+function markAllRead() {
+    window._unreadSignals = [];
+    renderUnreadList();
+}
+
 // 连接自动扫描 SSE
 function connectAutoScan() {
     if (autoScanSource) {
@@ -236,6 +345,10 @@ function connectAutoScan() {
             renderOpportunityTable(data.all_scanned);
             applyFilters();
             refreshOverviewStats();
+        }
+        // 新信号加入未读列表
+        if (data.new_signals && data.new_signals.length > 0) {
+            addUnreadSignals(data.new_signals);
         }
     });
 
