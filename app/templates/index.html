@@ -166,16 +166,18 @@ async function autoProcess() {
 // 加载并显示当前设置
 async function refreshOverviewStats() {
     try {
-        const res = await fetch('/overview');
+        const res = await fetch('/api/overview');
+        if (!res.ok) return;
         const s = await res.json();
+        if (!s) return;
         const el = document.getElementById('stat-total-signals');
-        if (el) el.textContent = s.total_profit;
+        if (el) el.textContent = (s.total_profit ?? 0);
         const el2 = document.getElementById('stat-win-rate');
-        if (el2) el2.textContent = s.win_rate + '%';
+        if (el2) el2.textContent = (s.win_rate ?? 0) + '%';
         const el3 = document.getElementById('stat-today-signals');
-        if (el3) el3.textContent = s.total_trades;
+        if (el3) el3.textContent = (s.total_trades ?? s.today_signals ?? 0);
         const el4 = document.getElementById('stat-pending');
-        if (el4) el4.textContent = s.pending_count;
+        if (el4) el4.textContent = (s.pending_count ?? 0);
     } catch (e) {
         // ignore
     }
