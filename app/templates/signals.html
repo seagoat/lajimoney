@@ -8,8 +8,8 @@
     <button class="btn btn-danger" onclick="deleteAll()">清空全部</button>
 </div>
 
-<div class="card">
-    <table id="signalsTable">
+<div class="card" style="overflow-x: auto;">
+    <table id="signalsTable" style="min-width: 1400px;">
         <thead>
             <tr>
                 <th data-sort="signal_time">时间</th>
@@ -35,7 +35,7 @@
             </tr>
         </thead>
         <tbody id="signalsBody">
-            <tr><td colspan="19">加载中...</td></tr>
+            <tr><td colspan="20">加载中...</td></tr>
         </tbody>
     </table>
 </div>
