@@ -96,7 +96,9 @@ async def _run_scan(scan_id: str, settings: dict):
     """
     后台运行扫描，每步结果直接追加到 _scan_results[scan_id]['steps']
     """
-    discount_threshold = float(settings["discount_threshold"])
+    hedge_threshold = float(settings.get("hedge_discount_threshold", "-0.3"))
+    short_threshold = float(settings.get("short_discount_threshold", "-2.0"))
+    naked_threshold = float(settings.get("naked_discount_threshold", "-2.0"))
     target_lot_size = int(settings["target_lot_size"])
     scan_mode = settings["scan_mode"]
 
@@ -104,7 +106,7 @@ async def _run_scan(scan_id: str, settings: dict):
 
     try:
         if scan_mode == "all":
-            gen = scan_all_cb_gen(discount_threshold, target_lot_size, settings)
+            gen = scan_all_cb_gen(hedge_threshold, short_threshold, naked_threshold, target_lot_size, settings)
         else:
             holdings_shares = await load_holdings()
             stock_codes = list(holdings_shares.keys())
@@ -115,7 +117,7 @@ async def _run_scan(scan_id: str, settings: dict):
                     "done": True,
                 }
                 return
-            gen = scan_portfolio_gen(stock_codes, discount_threshold, holdings_shares)
+            gen = scan_portfolio_gen(stock_codes, hedge_threshold, holdings_shares)
 
         signals = []
 
@@ -243,7 +245,9 @@ async def get_scan_settings():
     """获取当前扫描设置"""
     s = await get_settings()
     return {
-        "discount_threshold": float(s.get("discount_threshold", "-1.0")),
+        "hedge_discount_threshold": float(s.get("hedge_discount_threshold", "-0.3")),
+        "short_discount_threshold": float(s.get("short_discount_threshold", "-2.0")),
+        "naked_discount_threshold": float(s.get("naked_discount_threshold", "-2.0")),
         "target_lot_size": int(s.get("target_lot_size", "10")),
         "scan_mode": s.get("scan_mode", "all"),
     }

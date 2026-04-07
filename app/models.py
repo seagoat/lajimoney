@@ -102,13 +102,14 @@ class OverviewResponse(BaseModel):
 # === 设置模型 ===
 
 class SettingsResponse(BaseModel):
-    discount_threshold: float
+    hedge_discount_threshold: float  # 对冲/底仓模式阈值
+    short_discount_threshold: float  # 融券模式阈值
+    naked_discount_threshold: float  # 裸套模式阈值
     target_lot_size: int
     scan_mode: str  # 'holdings' | 'all'
     stock_broker_fee: float
     stock_stamp_tax: float
     cb_broker_fee: float
-    naked_discount_threshold: float
     naked_enabled: bool
     short_enabled: bool
     short_max_fund: float  # 融券模式单次最大资金（元）
@@ -118,13 +119,14 @@ class SettingsResponse(BaseModel):
 
 
 class SettingsUpdate(BaseModel):
-    discount_threshold: Optional[float] = None
+    hedge_discount_threshold: Optional[float] = None
+    short_discount_threshold: Optional[float] = None
+    naked_discount_threshold: Optional[float] = None
     target_lot_size: Optional[int] = None
     scan_mode: Optional[str] = None
     stock_broker_fee: Optional[float] = None
     stock_stamp_tax: Optional[float] = None
     cb_broker_fee: Optional[float] = None
-    naked_discount_threshold: Optional[float] = None
     naked_enabled: Optional[bool] = None
     short_enabled: Optional[bool] = None
     short_max_fund: Optional[float] = None

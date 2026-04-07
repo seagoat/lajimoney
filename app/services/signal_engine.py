@@ -62,7 +62,7 @@ def calc_net_profit_naked(buy_price: float, buy_shares: int,
 
 # ---- 同步版本（供 trade_engine 持久化成交用） ----
 
-def scan_portfolio(stock_codes: list[str], discount_threshold: float, target_lot_size: int) -> list[dict]:
+def scan_portfolio(stock_codes: list[str], hedge_threshold: float, target_lot_size: int) -> list[dict]:
     from app.services.data_fetcher import get_stock_price, get_cb_info_by_stock_with_price
     signals = []
     for code in stock_codes:
@@ -76,7 +76,7 @@ def scan_portfolio(stock_codes: list[str], discount_threshold: float, target_lot
         conversion_price = cb_info['conversion_price']
         conversion_value = calculate_conversion_value(price, conversion_price)
         premium_rate = calculate_premium_rate(cb_price, conversion_value)
-        if premium_rate < discount_threshold:
+        if premium_rate < hedge_threshold:
             signals.append({
                 'cb_code': cb_info['cb_code'],
                 'cb_name': cb_info['cb_name'],
@@ -96,7 +96,7 @@ def scan_portfolio(stock_codes: list[str], discount_threshold: float, target_lot
 
 # ---- 持仓模式异步扫描 ----
 
-async def scan_portfolio_gen(stock_codes: list[str], discount_threshold: float, holdings_shares: dict[str, float]):
+async def scan_portfolio_gen(stock_codes: list[str], hedge_threshold: float, holdings_shares: dict[str, float]):
     """
     异步生成器，逐只正股产出最终状态（持仓模式）
     每只股票只 yield 一次最终状态
@@ -139,7 +139,7 @@ async def scan_portfolio_gen(stock_codes: list[str], discount_threshold: float, 
         premium_rate = calculate_premium_rate(cb_price, conversion_value)
         discount_space = calculate_discount_space(conversion_value, cb_price)
 
-        if premium_rate < discount_threshold:
+        if premium_rate < hedge_threshold:
             # 按底仓股数换算所需CB张数：ceil(持有股数 × 转股价 ÷ 100 ÷ 10) × 10
             held_shares = holdings_shares.get(code, 0)
             if held_shares > 0 and conversion_price > 0:
@@ -173,7 +173,7 @@ async def scan_portfolio_gen(stock_codes: list[str], discount_threshold: float, 
                 'total': len(stock_codes),
                 'stock_code': code,
                 'status': 'not_qualified',
-                'message': f'{code} 正股:{price} → {cb_info["cb_code"]} 转债:{cb_price} 转股价:{conversion_price} 溢价率:{premium_rate:.2f}%（需<{discount_threshold}%）',
+                'message': f'{code} 正股:{price} → {cb_info["cb_code"]} 转债:{cb_price} 转股价:{conversion_price} 溢价率:{premium_rate:.2f}%（需<{hedge_threshold}%）',
                 'cb_code': cb_info['cb_code'],
                 'cb_name': cb_info['cb_name'],
                 'stock_price': price,
@@ -187,7 +187,7 @@ async def scan_portfolio_gen(stock_codes: list[str], discount_threshold: float, 
 
 # ---- 全量转债扫描模式 ----
 
-async def scan_all_cb_gen(discount_threshold: float, target_lot_size: int, settings: dict):
+async def scan_all_cb_gen(hedge_threshold: float, short_threshold: float, naked_threshold: float, target_lot_size: int, settings: dict):
     """
     异步生成器，扫描全市场转债（all模式）
     支持裸套模式：底仓为空时使用裸套折价阈值
@@ -228,11 +228,11 @@ async def scan_all_cb_gen(discount_threshold: float, target_lot_size: int, setti
     total = len(all_cb)
 
     if holdings_stocks:
-        mode_msg = '持仓对冲模式'
+        mode_msg = f'持仓对冲模式（阈值: {hedge_threshold}%）'
     elif short_enabled:
-        mode_msg = f'融券对冲模式（折价阈值: {discount_threshold}%）'
+        mode_msg = f'融券对冲模式（阈值: {short_threshold}%）'
     else:
-        mode_msg = f'裸套模式（折价阈值: {discount_threshold}%）'
+        mode_msg = f'裸套模式（阈值: {naked_threshold}%）'
 
     yield {
         'step': 0,
@@ -277,7 +277,7 @@ async def scan_all_cb_gen(discount_threshold: float, target_lot_size: int, setti
             trade_type = None
             mode_label = None
 
-        if trade_type and premium_rate < discount_threshold:
+        if trade_type and premium_rate < (hedge_threshold if trade_type == 'HEDGE' else (short_threshold if trade_type == 'SHORT' else naked_threshold)):
             # 计算目标张数
             if trade_type == 'HEDGE':
                 # 有底仓：按底仓股数换算
@@ -328,7 +328,7 @@ async def scan_all_cb_gen(discount_threshold: float, target_lot_size: int, setti
                 'total': total,
                 'stock_code': cb['stock_code'],
                 'status': 'not_qualified',
-                'message': f'{cb["stock_code"]} 正股:{stock_price} → {cb["cb_code"]} 转债:{cb_price} 转股价:{conversion_price} 溢价率:{premium_rate:.2f}%（需<{discount_threshold}%）',
+                'message': f'{cb["stock_code"]} 正股:{stock_price} → {cb["cb_code"]} 转债:{cb_price} 转股价:{conversion_price} 溢价率:{premium_rate:.2f}%',
                 'cb_code': cb['cb_code'],
                 'cb_name': cb['cb_name'],
                 'stock_name': stock_name,

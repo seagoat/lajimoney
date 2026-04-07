@@ -5,24 +5,9 @@
 
 <div class="card">
     <form id="settingsForm">
-        <h2>扫描参数</h2>
-        <div class="form-group">
-            <label>折价率阈值（%）</label>
-            <input type="number" name="discount_threshold" id="discount_threshold"
-                   step="0.1" required>
-            <small style="color:#888;display:block;margin-top:4px;">
-                溢价率低于此值时触发套利信号，默认 -1.0（如设为 -2.0 则只在大折价时触发）
-            </small>
-        </div>
 
-        <div class="form-group">
-            <label>每次买入张数</label>
-            <input type="number" name="target_lot_size" id="target_lot_size"
-                   min="1" max="100" required>
-            <small style="color:#888;display:block;margin-top:4px;">
-                每次模拟买入的转债张数，10张=1手
-            </small>
-        </div>
+        <!-- ========== 全局设置 ========== -->
+        <h2>全局设置</h2>
 
         <div class="form-group">
             <label>扫描模式</label>
@@ -37,11 +22,11 @@
         </div>
 
         <div class="form-group">
-            <label>自动扫描间隔（秒）</label>
-            <input type="number" name="scan_interval" id="scan_interval"
-                   min="1" max="300" value="5" required>
+            <label>每次买入张数</label>
+            <input type="number" name="target_lot_size" id="target_lot_size"
+                   min="1" max="100" required>
             <small style="color:#888;display:block;margin-top:4px;">
-                服务端后台自动扫描的间隔，默认 5 秒（1-300 秒）
+                每次模拟买入的转债张数，10张=1手
             </small>
         </div>
 
@@ -52,12 +37,22 @@
                 开启自动扫描
             </label>
             <small style="color:#888;display:block;margin-top:4px;">
-                开启后，服务器每间隔 N 秒自动执行一次扫描，并通过 SSE 实时推送结果到页面
+                开启后，服务器每隔 N 秒自动执行一次扫描，并通过 SSE 实时推送结果到页面
             </small>
         </div>
 
+        <div class="form-group">
+            <label>自动扫描间隔（秒）</label>
+            <input type="number" name="scan_interval" id="scan_interval"
+                   min="1" max="300" value="5" required>
+            <small style="color:#888;display:block;margin-top:4px;">
+                默认 5 秒（1-300 秒）
+            </small>
+        </div>
+
+        <!-- ========== 交易成本 ========== -->
         <div class="card" style="margin-top: 20px;">
-            <h2>交易成本设置</h2>
+            <h2>交易成本</h2>
             <div class="form-group">
                 <label>股票券商佣金率</label>
                 <input type="number" name="stock_broker_fee" id="stock_broker_fee"
@@ -86,61 +81,86 @@
             </div>
         </div>
 
+        <!-- ========== 对冲模式 ========== -->
         <div class="card" style="margin-top: 20px;">
-            <h2>套利资金上限</h2>
+            <h2>对冲模式 <span style="font-size:13px;color:#888;font-weight:normal;">（有底仓时启用）</span></h2>
             <div class="form-group">
-                <label>融券模式单次最大资金（元）</label>
-                <input type="number" name="short_max_fund" id="short_max_fund"
-                       step="1000" min="0" placeholder="默认 100000">
+                <label>折价阈值（%）</label>
+                <input type="number" name="hedge_discount_threshold" id="hedge_discount_threshold"
+                       step="0.1" required>
                 <small style="color:#888;display:block;margin-top:4px;">
-                    融券对冲模式下，单次操作投入的最大资金量，默认10万元
-                </small>
-            </div>
-
-            <div class="form-group">
-                <label>裸套模式单次最大资金（元）</label>
-                <input type="number" name="naked_max_fund" id="naked_max_fund"
-                       step="1000" min="0" placeholder="默认 100000">
-                <small style="color:#888;display:block;margin-top:4px;">
-                    裸套模式下，单次操作投入的最大资金量，默认10万元
+                    溢价率低于此值时触发对冲信号，默认 -0.3（如设为 -0.5 则要求更大折价）
                 </small>
             </div>
         </div>
 
+        <!-- ========== 融券模式 ========== -->
         <div class="card" style="margin-top: 20px;">
-            <h2>无底仓套利模式</h2>
-            <div class="form-group">
-                <label>
-                    <input type="checkbox" name="naked_enabled" id="naked_enabled"
-                           style="width: auto; margin-right: 8px;">
-                    启用裸套模式（底仓为空时）
-                </label>
-                <small style="color:#888;display:block;margin-top:4px;">
-                    开启后，当底仓为空时会使用裸套折价阈值扫描全市场转债
-                </small>
-            </div>
-
-            <div class="form-group">
-                <label>裸套折价阈值（%）</label>
-                <input type="number" name="naked_discount_threshold" id="naked_discount_threshold"
-                       step="0.1" placeholder="默认 -2.0">
-                <small style="color:#888;display:block;margin-top:4px;">
-                    裸套模式只买溢价率低于此值的转债（如 -2.0 表示溢价率 &lt; -2% 才触发）
-                </small>
-            </div>
-
+            <h2>融券模式 <span style="font-size:13px;color:#888;font-weight:normal;">（无底仓时优先于裸套）</span></h2>
             <div class="form-group">
                 <label>
                     <input type="checkbox" name="short_enabled" id="short_enabled"
                            style="width: auto; margin-right: 8px;">
-                    启用融券对冲模式（无底仓时优先于裸套）
+                    启用融券模式
                 </label>
                 <small style="color:#888;display:block;margin-top:4px;">
-                    优先于裸套。融券卖出正股 + 买入CB转股归还，可消除隔夜风险
+                    融券卖出正股 + 买入CB转股归还，可消除隔夜风险
+                </small>
+            </div>
+
+            <div class="form-group">
+                <label>折价阈值（%）</label>
+                <input type="number" name="short_discount_threshold" id="short_discount_threshold"
+                       step="0.1" placeholder="默认 -2.0">
+                <small style="color:#888;display:block;margin-top:4px;">
+                    只买溢价率低于此值的转债，默认 -2.0（如设为 -1.5 则更容易触发）
+                </small>
+            </div>
+
+            <div class="form-group">
+                <label>单次最大资金（元）</label>
+                <input type="number" name="short_max_fund" id="short_max_fund"
+                       step="1000" min="0" placeholder="默认 100000">
+                <small style="color:#888;display:block;margin-top:4px;">
+                    单次操作投入的最大资金量，默认10万元
                 </small>
             </div>
         </div>
 
+        <!-- ========== 裸套模式 ========== -->
+        <div class="card" style="margin-top: 20px;">
+            <h2>裸套模式 <span style="font-size:13px;color:#888;font-weight:normal;">（无底仓且无融券标的时启用）</span></h2>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" name="naked_enabled" id="naked_enabled"
+                           style="width: auto; margin-right: 8px;">
+                    启用裸套模式
+                </label>
+                <small style="color:#888;display:block;margin-top:4px;">
+                    风险最高，持有隔夜正股敞口
+                </small>
+            </div>
+
+            <div class="form-group">
+                <label>折价阈值（%）</label>
+                <input type="number" name="naked_discount_threshold" id="naked_discount_threshold"
+                       step="0.1" placeholder="默认 -2.0">
+                <small style="color:#888;display:block;margin-top:4px;">
+                    只买溢价率低于此值的转债，默认 -2.0
+                </small>
+            </div>
+
+            <div class="form-group">
+                <label>单次最大资金（元）</label>
+                <input type="number" name="naked_max_fund" id="naked_max_fund"
+                       step="1000" min="0" placeholder="默认 100000">
+                <small style="color:#888;display:block;margin-top:4px;">
+                    单次操作投入的最大资金量，默认10万元
+                </small>
+            </div>
+        </div>
+
+        <!-- ========== 券商保证金 ========== -->
         <div class="card" style="margin-top: 20px;">
             <h2>券商保证金设置</h2>
             <div class="form-group">
@@ -186,7 +206,8 @@
 async function loadSettings() {
     const res = await fetch('/api/settings');
     const s = await res.json();
-    document.getElementById('discount_threshold').value = s.discount_threshold;
+    document.getElementById('hedge_discount_threshold').value = s.hedge_discount_threshold;
+    document.getElementById('short_discount_threshold').value = s.short_discount_threshold;
     document.getElementById('target_lot_size').value = s.target_lot_size;
     document.getElementById('scan_mode').value = s.scan_mode;
     document.getElementById('stock_broker_fee').value = s.stock_broker_fee;
@@ -215,7 +236,8 @@ document.getElementById('settingsForm').onsubmit = async (e) => {
     e.preventDefault();
     const form = new FormData(e.target);
     const body = {
-        discount_threshold: parseFloat(form.get('discount_threshold')),
+        hedge_discount_threshold: parseFloat(form.get('hedge_discount_threshold')),
+        short_discount_threshold: parseFloat(form.get('short_discount_threshold')),
         target_lot_size: parseInt(form.get('target_lot_size')),
         scan_mode: form.get('scan_mode'),
         stock_broker_fee: parseFloat(form.get('stock_broker_fee') || '0.0001'),

@@ -15,13 +15,14 @@ async def get_settings():
         rows = await cursor.fetchall()
         settings = {r['key']: r['value'] for r in rows}
         return {
-            "discount_threshold": float(settings.get("discount_threshold", "-1.0")),
+            "hedge_discount_threshold": float(settings.get("hedge_discount_threshold", "-0.3")),
+            "short_discount_threshold": float(settings.get("short_discount_threshold", "-2.0")),
+            "naked_discount_threshold": float(settings.get("naked_discount_threshold", "-2.0")),
             "target_lot_size": int(settings.get("target_lot_size", "10")),
             "scan_mode": settings.get("scan_mode", "all"),
             "stock_broker_fee": float(settings.get("stock_broker_fee", "0.0001")),
             "stock_stamp_tax": float(settings.get("stock_stamp_tax", "0.0015")),
             "cb_broker_fee": float(settings.get("cb_broker_fee", "0.00006")),
-            "naked_discount_threshold": float(settings.get("naked_discount_threshold", "-2.0")),
             "naked_enabled": settings.get("naked_enabled", "true") == "true",
             "short_enabled": settings.get("short_enabled", "false") == "true",
             "short_max_fund": float(settings.get("short_max_fund", "100000")),
@@ -35,10 +36,15 @@ async def get_settings():
 async def update_settings(update: SettingsUpdate):
     now = datetime.now().isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
-        if update.discount_threshold is not None:
+        if update.hedge_discount_threshold is not None:
             await db.execute(
                 "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
-                ("discount_threshold", str(update.discount_threshold), now)
+                ("hedge_discount_threshold", str(update.hedge_discount_threshold), now)
+            )
+        if update.short_discount_threshold is not None:
+            await db.execute(
+                "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+                ("short_discount_threshold", str(update.short_discount_threshold), now)
             )
         if update.target_lot_size is not None:
             await db.execute(

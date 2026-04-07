@@ -189,7 +189,7 @@ async function loadCurrentSettings() {
         const s = await res.json();
         const modeText = s.scan_mode === 'all' ? '全市场转债' : '仅持仓正股';
         document.getElementById('currentSettings').textContent =
-            `当前模式: ${modeText} | 折价阈值: ${s.discount_threshold}% | 每次买入: ${s.target_lot_size}张`;
+            `当前模式: ${modeText} | 对冲: ${s.hedge_discount_threshold}% | 融券: ${s.short_discount_threshold}% | 裸套: ${s.naked_discount_threshold}% | 每次买入: ${s.target_lot_size}张`;
     } catch (e) {
         document.getElementById('currentSettings').textContent = '设置加载失败';
     }
@@ -244,7 +244,7 @@ function renderUnreadList() {
             <div style="display:flex;justify-content:space-between;align-items:center;">
                 <div>
                     <span style="font-weight:bold;color:#333;">${sig.cb_name || sig.cb_code}</span>
-                    <span style="color:#888;font-size:12px;margin-left:6px;">${sig.stock_name || sig.stock_code}</span>
+                    <span style="color:#888;font-size:12px;margin-left:6px;">${sig.stock_name || sig.stock_code} (${stockPrice > 0 ? stockPrice.toFixed(2) : ''})</span>
                     <span style="font-size:11px;margin-left:4px;">${holdingsBadge}</span>
                 </div>
                 <div style="text-align:right;">
@@ -460,6 +460,7 @@ function renderOpportunityTable(data) {
         tbody.innerHTML += `<tr data-strategy="${tradeType}" data-premium="${sig.premium_rate != null ? sig.premium_rate : ''}" data-holdings="${sig.has_holdings ? 'yes' : 'no'}" data-new="${isNew ? 'yes' : 'no'}" style="${rowStyle}">
             <td>${newBadge}${cbInfo}</td>
             <td>${stockInfo}</td>
+            <td>${stockPrice > 0 ? stockPrice.toFixed(2) : '-'}</td>
             <td>${holdingsBadge}</td>
             <td>${strategyLabel}</td>
             <td class="${sig.premium_rate < 0 ? 'profit' : 'loss'}">${premium}</td>
@@ -620,6 +621,7 @@ function triggerScan(skipConfirm) {
                 <tr style="background:#f5f5f5;">
                     <th data-sort="cb">转债</th>
                     <th data-sort="stock">正股</th>
+                    <th data-sort="stockPrice">正股价</th>
                     <th data-sort="holdings">底仓</th>
                     <th data-sort="strategy">策略</th>
                     <th data-sort="premium">溢价率</th>

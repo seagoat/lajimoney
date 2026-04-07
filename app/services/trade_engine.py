@@ -18,7 +18,7 @@ async def execute_scan_and_trade():
         # 读取设置
         cursor = await db.execute("SELECT key, value FROM settings")
         settings = {r['key']: r['value'] for r in await cursor.fetchall()}
-        discount_threshold = float(settings.get("discount_threshold", "-1.0"))
+        hedge_threshold = float(settings.get("hedge_discount_threshold", "-0.3"))
         target_lot_size = int(settings.get("target_lot_size", "10"))
 
         # 1. 获取持仓正股列表
@@ -30,7 +30,7 @@ async def execute_scan_and_trade():
             return {"status": "no_holdings", "signals": []}
 
         # 2. 执行扫描
-        signals = scan_portfolio(stock_codes, discount_threshold, target_lot_size)
+        signals = scan_portfolio(stock_codes, hedge_threshold, target_lot_size)
 
         # 3. 记录扫描日志
         now = datetime.now()

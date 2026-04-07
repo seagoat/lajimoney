@@ -130,7 +130,8 @@ async def init_db():
 
         # 确保旧的 settings 也有默认值
         old_settings = [
-            ('discount_threshold', '-1.0'),
+            ('hedge_discount_threshold', '-0.3'),
+            ('short_discount_threshold', '-2.0'),
             ('target_lot_size', '10'),
             ('scan_mode', 'all'),
         ]
