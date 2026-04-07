@@ -80,7 +80,6 @@ async def _do_scan():
 
     try:
         from app.routers.signals import _run_scan, get_settings, _scan_results
-        from datetime import datetime
 
         scan_id = f"auto_{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
         settings = await get_settings()
