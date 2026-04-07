@@ -115,6 +115,12 @@ async def update_settings(update: SettingsUpdate):
         from app.services.scheduler import update_scheduler_config
         s = await get_settings()
         update_scheduler_config(s.get("auto_scan_enabled", True), s.get("scan_interval", 5))
+
+    # 设置变更后立即触发一次扫描
+    from app.services.scheduler import _do_scan
+    import asyncio
+    asyncio.create_task(_do_scan())
+
     return await get_settings()
 
 
