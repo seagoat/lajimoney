@@ -173,7 +173,7 @@ async def _run_scan(scan_id: str, settings: dict):
 
         # 只写入 signals 表，status 为 PENDING，不写 trades 表
         try:
-            now = datetime.now().isoformat()
+            now = datetime.utcnow().isoformat()
             async with aiosqlite.connect(DB_PATH) as db:
                 target_stocks = scan_mode + "_mode"
                 cursor = await db.execute(
@@ -198,13 +198,13 @@ async def _run_scan(scan_id: str, settings: dict):
                         """INSERT INTO signals
                         (scan_log_id, cb_code, cb_name, stock_code, stock_name, stock_price, cb_price,
                          conversion_price, conversion_value, premium_rate, discount_space,
-                         target_buy_price, target_shares, trade_type, has_holdings, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')""",
+                         target_buy_price, target_shares, trade_type, has_holdings, signal_time, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')""",
                         (scan_log_id, sig['cb_code'], sig['cb_name'], sig['stock_code'],
                          sig.get('stock_name'), sig['stock_price'], sig['cb_price'], sig['conversion_price'],
                          sig['conversion_value'], sig['premium_rate'], sig['discount_space'],
                          sig['target_buy_price'], sig['target_shares'],
-                         sig.get('trade_type', 'HEDGE'), sig.get('has_holdings', False) and 1 or 0)
+                         sig.get('trade_type', 'HEDGE'), sig.get('has_holdings', False) and 1 or 0, now)
                     )
                     inserted += 1
                     new_signals.append(sig)

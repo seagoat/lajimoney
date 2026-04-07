@@ -43,6 +43,17 @@
 <script>
 let sortState = { signalsTable: { column: 'signal_time', direction: 'desc' } };
 
+function toLocalTime(utcStr) {
+    if (!utcStr) return '-';
+    try {
+        const d = new Date(utcStr + 'Z');
+        const pad = n => n.toString().padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    } catch (e) {
+        return utcStr.slice(0, 19);
+    }
+}
+
 function makeSortable(tableId, defaultCol, defaultDir) {
     sortState[tableId] = { column: defaultCol, direction: defaultDir };
     const headers = document.querySelectorAll(`#${tableId} th[data-sort]`);
@@ -156,7 +167,7 @@ async function loadSignals() {
         const actions = `<button class="btn btn-danger btn-sm" onclick="deleteSignal(${s.id})">删除</button>`;
 
         return `<tr>
-            <td>${s.signal_time ? s.signal_time.slice(0, 19) : '-'}</td>
+            <td>${toLocalTime(s.signal_time)}</td>
             <td>${cbInfo}</td>
             <td>${stockInfo}</td>
             <td>${stockPrice > 0 ? stockPrice.toFixed(2) : '-'}</td>
