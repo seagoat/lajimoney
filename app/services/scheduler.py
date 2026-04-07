@@ -2,6 +2,7 @@
 后台定时扫描调度器
 """
 import asyncio
+from datetime import datetime, time
 from typing import Optional
 
 # 最新扫描结果（供 SSE 接口读取）
@@ -28,14 +29,52 @@ _timer_handle: Optional[asyncio.TimerHandle] = None
 # 服务器关闭信号（通知 SSE 连接关闭）
 _server_shutdown_event: asyncio.Event = asyncio.Event()
 
+# 非交易时段已扫且无新信号的标记（避免重复扫描）
+_non_trading_no_signal_done: bool = False
+
+# 上一次扫描是否为交易日（用于判断是否跨日，需重置标记）
+_last_scan_date: Optional[str] = None
+
+
+def is_trading_time() -> bool:
+    """判断当前是否为 A 股交易时段（周一至周五 9:30-11:30, 13:00-15:00）"""
+    now = datetime.now()
+    weekday = now.weekday()  # Mon=0, Sun=6
+    if weekday >= 5:  # 周六、周日
+        return False
+    t = now.time()
+    morning_start = time(9, 30)
+    morning_end = time(11, 30)
+    afternoon_start = time(13, 0)
+    afternoon_end = time(15, 0)
+    if morning_start <= t <= morning_end or afternoon_start <= t <= afternoon_end:
+        return True
+    return False
+
 
 async def _do_scan():
     """执行一次扫描，结果写入 latest_scan_result"""
     global latest_scan_result, _scan_in_progress, _scan_enabled
+    global _non_trading_no_signal_done, _last_scan_date
+
     if not _scan_enabled:
         return
     if _scan_in_progress:
         return
+
+    now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    trading = is_trading_time()
+
+    # 跨交易日重置标记
+    if _last_scan_date and _last_scan_date != today:
+        _non_trading_no_signal_done = False
+    _last_scan_date = today
+
+    # 非交易时段：若已完成一次扫描，跳过
+    if not trading and _non_trading_no_signal_done:
+        return
+
     _scan_in_progress = True
     _scan_done_event.clear()  # 清空上一次的完成信号
 
@@ -56,6 +95,14 @@ async def _do_scan():
             if result and result.get("done"):
                 latest_scan_result = result
                 _scan_done_event.set()
+
+                # 非交易时段且本次无新信号 → 标记完成，后续跳过
+                new_sig_count = result.get("signals_found", 0)
+                if not trading and new_sig_count == 0:
+                    _non_trading_no_signal_done = True
+                # 有新信号则清除标记，下次继续正常扫
+                elif new_sig_count > 0:
+                    _non_trading_no_signal_done = False
                 break
     finally:
         _scan_in_progress = False
